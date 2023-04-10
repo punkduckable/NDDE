@@ -146,10 +146,10 @@ class DDE_adjoint_1D(torch.autograd.Function):
         x_Interp = interpolate.interp1d(x = t_Trajectory.detach().numpy(), y = x_Trajectory.detach().numpy())
 
         # Find time values for backwards pass. 
-        t_Values     : torch.Tensor      = torch.linspace(start = 0, end = T, steps = N + 1);
+        t_Values     : torch.Tensor         = torch.linspace(start = 0, end = T, steps = N + 1);
 
         # evaluate the interpolation of x at these values. 
-        x_Values        : torch.Tensor      = torch.tensor(x_Interp(t_Values.detach().numpy()));
+        x_Values        : torch.Tensor      = torch.from_numpy(x_Interp(t_Values.detach().numpy()));
 
         # define the augmented system
         p               : torch.Tensor      = torch.zeros([N + 1, 1], dtype = torch.float32); # we need to remember the second dimension since the eq for p is a DDE
