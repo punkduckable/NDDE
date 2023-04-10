@@ -51,20 +51,20 @@ def Forward_Euler(F : torch.nn.Module, x_0 : torch.Tensor, tau : torch.Tensor, T
 
     # tensor to hold the solution, time steps. Note the +1 is to account for 
     # the fact that we want the solution at N+1 times: 0, dt, 2dt, ... , Ndt.
-    x_trajectory    : torch.Tensor  = torch.empty([d, N + 1],   dtype = torch.float32);
-    t_trajectory    : torch.Tensor  = torch.linspace(start = 0, end = N*dt, steps = N + 1);
+    x_Trajectory    : torch.Tensor  = torch.empty([d, N + 1],   dtype = torch.float32);
+    t_Trajectory    : torch.Tensor  = torch.linspace(start = 0, end = T, steps = N + 1);
 
     # Set the first column of x to the IC.  
-    x_trajectory[:, 0]             = x_0;
+    x_Trajectory[:, 0]             = x_0;
     
     # Compute the solution!
     for i in range(0, N):
         # Find x at the i+1th time value. Note that if t < tau (equivalently, i < dN), then 
         # t - \tau < 0, which means that x(t - \tau) = x_0. 
         if i >= dN:
-            x_trajectory[:, i + 1] = x_trajectory[:, i] + dt*F(x = x_trajectory[:, i], y = x_trajectory[:, i - dN], t = torch.tensor(float(i*dN)));
+            x_Trajectory[:, i + 1] = x_Trajectory[:, i] + dt*F(x = x_Trajectory[:, i], y = x_Trajectory[:, i - dN], t = torch.tensor(float(i*dN)));
         else:
-            x_trajectory[:, i + 1] = x_trajectory[:, i] + dt*F(x = x_trajectory[:, i], y = x_0,          t = torch.tensor(float(i*dN)));
+            x_Trajectory[:, i + 1] = x_Trajectory[:, i] + dt*F(x = x_Trajectory[:, i], y = x_0,          t = torch.tensor(float(i*dN)));
 
     # All done!
-    return (x_trajectory, t_trajectory);
+    return (x_Trajectory, t_Trajectory);
