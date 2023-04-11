@@ -230,13 +230,6 @@ class DDE_adjoint_1D(torch.autograd.Function):
             
             p[:, i - 1] = p[:, i] + dt*0.5*(k1 + k2);
 
-            """
-            if i + N_tau >= N:
-                p[i - 1] = p[i] - dt*(df_dx[:, i]*p[i]);
-            else:
-                p[i - 1] = p[i] - dt*(df_dx[:, i]*p[i] + df_dy[:, i + N_tau]*p[i + N_tau]);
-            """
-                
             # update the gradient for theta. I do this using the trapezodial rule.
             p_theta : torch.Tensor = p_theta - dt*0.5*(p[:, i - 1]*df_dtheta_im1 + p[:, i]*df_dtheta_i);
 
@@ -258,16 +251,6 @@ class DDE_adjoint_1D(torch.autograd.Function):
             # Finally, update df_dtheta_i
             df_dtheta_i = df_dtheta_im1;
 
-        """
-        plt.figure(0);
-        plt.plot(t_trajectory, p.detach().numpy());
-        plt.yscale('log');
-        plt.figure(1);
-        plt.plot(t_trajectory, df_dx.reshape(-1).detach().numpy());
-        plt.figure(2);
-        print(df_dy);
-        plt.plot(t_trajectory, df_dy.reshape(-1).detach().numpy());
-        """
         
         # All done... The kth return argument represents the gradient for the kth argument to forward.
         return None, p[0].clone(), p_tau, None, p_theta;
