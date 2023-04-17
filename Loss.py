@@ -58,5 +58,5 @@ def SSE_Loss(Predict_Trajectory : torch.Tensor, Target_Trajectory : torch.Tensor
     assert(Predict_Trajectory.shape         == Target_Trajectory.shape);
 
     # Compute the loss. 
-    Loss : torch.Tensor = torch.mean(torch.square(Predict_Trajectory - Target_Trajectory));
+    Loss : torch.Tensor = torch.sum(torch.square(Predict_Trajectory - Target_Trajectory));
     return Loss;
