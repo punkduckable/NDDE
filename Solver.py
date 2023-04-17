@@ -40,14 +40,14 @@ def Forward_Euler(F : torch.nn.Module, x_0 : torch.Tensor, tau : torch.Tensor, T
     d   : int           = x_0.shape[0];
 
     # Define the time-step to be 0.01 of the delay
-    dt  : float         = 0.01*tau.item() if tau != 0 else 1.0;
+    dt  : float         = 0.1*tau.item() if tau != 0 else 1.0;
 
     # Find the number of time steps. We add +1 for the initial time.
     N   : int           = int(torch.floor(T/dt).item());
 
     # compute the difference in indices between x(t) and x(t - tau).
-    # This is just tau/dt = tau/(.01*tau) = 100.
-    N_tau  : int           = 100;
+    # This is just tau/dt = tau/(.01*tau) = 10.
+    N_tau  : int           = 10;
 
     # tensor to hold the solution, time steps. Note the +1 is to account for 
     # the fact that we want the solution at N+1 times: 0, dt, 2dt, ... , Ndt.
@@ -108,14 +108,14 @@ def RK2(F : torch.nn.Module, x_0 : torch.Tensor, tau : torch.Tensor, T : torch.T
     d   : int           = x_0.shape[0];
 
     # Define the time-step to be 0.01 of the delay
-    dt  : float         = 0.01*tau.item() if tau != 0 else 1.0;
+    dt  : float         = 0.1*tau.item() if tau != 0 else 1.0;
 
     # Find the number of time steps. We add +1 for the initial time.
     N   : int           = int(torch.floor(T/dt).item());
 
     # compute the difference in indices between x(t) and x(t - tau).
-    # This is just tau/dt = tau/(.01*tau) = 100.
-    N_tau  : int           = 100;
+    # This is just tau/dt = tau/(.01*tau) = 10.
+    N_tau  : int           = 10;
 
     # tensor to hold the solution, time steps. Note the +1 is to account for 
     # the fact that we want the solution at N+1 times: 0, dt, 2dt, ... , Ndt.

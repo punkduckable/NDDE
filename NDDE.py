@@ -144,9 +144,9 @@ class DDE_adjoint_1D(torch.autograd.Function):
         
         # Find the step size for the backwards pass. Also find the number of time step and the 
         # number of time steps in an interval of length tau. 
-        dt              : float             = 0.01*tau.item();
+        dt              : float             = 0.1*tau.item();
         N               : int               = int(torch.floor(T/dt).item());
-        N_tau           : int               = 100;
+        N_tau           : int               = 10;
 
         # Now, let's set up an interpolation of the forward trajectory. We will evaluate this 
         # interpolation at each time when we want to compute the adjoint. This allows us to use
@@ -253,27 +253,28 @@ class DDE_adjoint_1D(torch.autograd.Function):
                 p[i, :, j - 1] = p[i, :, j] + dt*0.5*(k1 + k2);
     
 
-        """
         ###########################################################################################
         # Compute dx_dtheta and dx_dtau at each time step.
 
         dx_dtheta   = torch.zeros([d, N_Params, N + 1], dtype = torch.float32);
         dx_dtau     = torch.zeros([d, N + 1],            dtype = torch.float32);
 
-        for i in range(d):
-            for j in range(N + 1):
+        for i in range(0, d):
+            for j in range(0, N):
                 # From the paper, 
                 #   dx^i(t_j)/dtheta = \int_0^t_j p_i(T - t_j + t) (dF/dtheta)(x(t), x(t - tau)) dt
                 # Here, p_i is the adjoint for the ith component of p. We compute this integral 
                 # the trapezodial rule.
-                for k in range(j):
-                    dx_dtheta[i, :, j] += dt*0.5*(p[i, N - j + k]*dF_dtheta[:, k] + p[i, N - j + k + 1]*dF_dtheta[:, k + 1]);
+                for k in range(0, j):
+                    dx_dtheta[i, :, j] += dt*0.5*(  torch.matmul(p[i, :, N - j + k    ].reshape(1, -1), dF_dtheta[:, :, k    ]).reshape(-1) + 
+                                                    torch.matmul(p[i, :, N - j + k + 1].reshape(1, -1), dF_dtheta[:, :, k + 1]).reshape(-1) );
                 
                 # From the paper, 
                 #   dx^i(t_j)/dtau  -= \int_0^{t_j - tau} p_i(T - t_j + t + tah) (dF/dtheta)(x(t + tau), x(t), t + tau)F(x(t), x(t - tau), t) dt
                 # We also compute this integral using the trapezodial rule.
-                for k in range(j - N_tau):
-                    dx_dtau[i, j] -= dt*0.5*p[i, N + j + k + N_tau]*dF_dy[:, k + N_tau]*F_Values[:, k];
+                for k in range(0, j - N_tau):
+                    dx_dtau[i, j] -= dt*0.5*(   torch.dot(p[i, :, N - j + k + N_tau    ],   torch.mv(dF_dy[:, :, k + N_tau    ],    F_Values[:, k    ])) + 
+                                                torch.dot(p[i, :, N - j + k + N_tau + 1],   torch.mv(dF_dy[:, :, k + N_tau + 1],    F_Values[:, k + 1])) );
 
 
         ###########################################################################################
@@ -287,8 +288,8 @@ class DDE_adjoint_1D(torch.autograd.Function):
             for i in range(d):
                 dL_dtheta   += -2*(x_True_Values[i, j] - x_Pred_Values[i, j])*dx_dtheta[i, :, j];
                 dL_dtau     += -2*(x_True_Values[i, j] - x_Pred_Values[i, j])*dx_dtau[i, j];
+        
         """
-
         # Set up vectors to hold dL_dtau and dL_dtheta
         dL_dtau         : torch.Tensor      = torch.tensor([0.], dtype = torch.float32);
         dL_dtheta       : torch.Tensor      = torch.zeros_like(F_Params);
@@ -315,6 +316,7 @@ class DDE_adjoint_1D(torch.autograd.Function):
                 F_jp1_tau     : torch.Tensor  = F(x_jp1_tau, y_jp1_tau, t_jp1_tau);
 
                 dL_dtau      : torch.Tensor  = dL_dtau - dt*0.5*(p[0, :, j]*dF_dy[0, :, j]*F_j_tau + p[0, :, j + 1]*dF_dy[0, :, j + 1]*F_jp1_tau);
+        """
 
         # All done... The kth return argument represents the gradient for the kth argument to forward.
-        return None, p[0].clone(), dL_dtau, None, None, dL_dtheta;
+        return None, p[0], dL_dtau, None, None, dL_dtheta;
