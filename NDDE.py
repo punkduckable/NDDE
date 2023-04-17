@@ -33,7 +33,7 @@ class NDDE_1D(torch.nn.Module):
         self.Model = Model;
         
 
-    def forward(self, x_0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor):
+    def forward(self, x_0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, x_True_Interp):
         """
         Arguments: 
 
@@ -113,7 +113,7 @@ class DDE_adjoint_1D(torch.autograd.Function):
         x_Trajectory, t_Trajectory = DDE_Solver(F, x_0, tau, T);
             
         # Save non-tensor arguments for backwards.
-        ctx.F       = F; 
+        ctx.F               = F; 
 
         # Save tensor arguments for backwards
         ctx.save_for_backward(x_0, tau, T, x_Trajectory, t_Trajectory, F_Params);
@@ -143,43 +143,46 @@ class DDE_adjoint_1D(torch.autograd.Function):
         # Now, let's set up an interpolation of the forward trajectory. We will evaluate this 
         # interpolation at each time when we want to compute the adjoint. This allows us to use
         # a different time step for the forward and backwards passes. 
-        x_Interp = interpolate.interp1d(x = t_Trajectory.detach().numpy(), y = x_Trajectory.detach().numpy())
+        x_Pred_Interp                       = interpolate.interp1d(x = t_Trajectory.detach().numpy(), y = x_Trajectory.detach().numpy())
 
         # Find time values for backwards pass. 
-        t_Values     : torch.Tensor         = torch.linspace(start = 0, end = T, steps = N + 1);
+        t_Values        : torch.Tensor      = torch.linspace(start = 0, end = T, steps = N + 1);
 
-        # evaluate the interpolation of x at these values. 
-        x_Values        : torch.Tensor      = torch.from_numpy(x_Interp(t_Values.detach().numpy()));
+        # evaluate the interpolation of the predicted, true solution at these values. 
+        x_Pred_Values   : torch.Tensor      = torch.from_numpy(x_Pred_Interp(t_Values.detach().numpy()));
 
-        # define the augmented system
-        p               : torch.Tensor      = torch.zeros([d, N + 1], dtype = torch.float32); # we need to remember the second dimension since the eq for p is a DDE
-        p_tau           : torch.Tensor      = torch.tensor([0.], dtype = torch.float32);
-        p_theta         : torch.Tensor      = torch.zeros_like(F_Params);
+        # Set up a vector to hold the adjoint. We also set up tensors to hold dL_dtheta and 
+        # dL_dtau.
+        #   the ith component of p will hold the value of p(t) at the ith time step. 
+        #   
+        p               : torch.Tensor      = torch.zeros([d, N + 1],           dtype = torch.float32);
+        dL_dtau         : torch.Tensor      = torch.tensor([0.], dtype = torch.float32);
+        dL_dtheta       : torch.Tensor      = torch.zeros_like(F_Params);
 
         # Initialize the last component of p. 
         p[:, -1]                            = 1.;
 
         # we need the sensitivity matrix evaluated at future times in the equation for the adjoint
         # so we need to store it
-        df_dy = torch.zeros([d, N + 1], dtype = torch.float32);
-        df_dx = torch.zeros([d, N + 1], dtype = torch.float32);
+        dF_dx       = torch.zeros([d,        N + 1],    dtype = torch.float32);
+        dF_dy       = torch.zeros([d,        N + 1],    dtype = torch.float32);
 
         # Populate the initial elements of df_dy and df_dx. Since we use an RK2 method to solve the 
         # p adjoint equation, we always need to know df_dx and df_dy one step ahead of the current time step. 
         torch.set_grad_enabled(True);
 
         # Fetch t, x, y from the last time step.
-        t_N  : torch.Tensor = t_Values[N];
-        x_N : torch.Tensor  = x_Values[:, N         ].requires_grad_(True);
-        y_N : torch.Tensor  = x_Values[:, N - N_tau ].requires_grad_(True);
+        t_N : torch.Tensor  = t_Values[N];
+        x_N : torch.Tensor  = x_Pred_Values[:, N         ].requires_grad_(True);
+        y_N : torch.Tensor  = x_Pred_Values[:, N - N_tau ].requires_grad_(True);
 
         # Evaluate F at the current state.
         F_N : torch.Tensor  = F(x_N, y_N, t_N);
 
-        # find the gradient of F w.r.t. x and y.
-        df_dx_N, df_dy_N, df_dtheta_i   = torch.autograd.grad(outputs = F_N, inputs = (x_N, y_N, F_Params));
-        df_dx[:, -1]                    = df_dx_N;
-        df_dy[:, -1]                    = df_dy_N;
+        # find the gradient of F with respect to x, y, and theta at the final time step.
+        dF_dx_N, dF_dy_N, dF_dtheta_i   = torch.autograd.grad(outputs = F_N, inputs = (x_N, y_N, F_Params));
+        dF_dx[:, -1]                    = dF_dx_N;
+        dF_dy[:, -1]                    = dF_dy_N;
 
         # We are all done tracking gradients.
         torch.set_grad_enabled(False);
@@ -188,69 +191,76 @@ class DDE_adjoint_1D(torch.autograd.Function):
             # Enable gradient tracking! We need this to compute the gradients of F. 
             torch.set_grad_enabled(True);
 
-            # Fetch x, y from the ith time step.
-            t_i     : torch.Tensor  = t_Values[i];
-            t_im1   : torch.Tensor  = t_Values[i - 1];
-            x_im1   : torch.Tensor  = x_Values[:, i - 1         ].requires_grad_(True);
-            y_im1   : torch.Tensor  = x_Values[:, i - 1 - N_tau ].requires_grad_(True) if i - 1 - N_tau >= 0 else x_0;
+            # Fetch x, y from the ith, i-1th time step.
+            t_i         : torch.Tensor  = t_Values[i];
+            x_i         : torch.Tensor  = x_Pred_Values[:, i];
 
-            # Evaluate F at the current state.
-            F_im1   : torch.Tensor  = F(x_im1, y_im1, t_im1);
+            t_im1       : torch.Tensor  = t_Values[i - 1];
+            x_im1       : torch.Tensor  = x_Pred_Values[:, i - 1         ].requires_grad_(True);
+            y_im1       : torch.Tensor  = x_Pred_Values[:, i - 1 - N_tau ].requires_grad_(True) if i - 1 - N_tau >= 0 else x_0;
 
-            # find the gradient of F w.r.t. x, y, and theta
-            df_dx_im1, df_dy_im1, df_dtheta_im1 = torch.autograd.grad(outputs = F_im1, inputs = (x_im1, y_im1, F_Params));
+            # Evaluate F at the i-1th time step.
+            F_im1       : torch.Tensor  = F(x_im1, y_im1, t_im1);
+
+            # find the gradient of F with respect to x, y, and theta at the i-1th time step.
+            dF_dx_im1, dF_dy_im1, dF_dtheta_im1 = torch.autograd.grad(outputs = F_im1, inputs = (x_im1, y_im1, F_Params));
 
             # We are all done tracking gradients.
             torch.set_grad_enabled(False);
 
             # Check if the gradient with respect to x or y is None. If so, then F doesn't depend on 
             # that parameter. We set the gradient to zero and let the user know.
-            if(df_dx_im1 == None):
-                df_dx[:, i - 1] = torch.zeros(d);
+            if(dF_dx_im1 == None):
+                dF_dx[:, i - 1] = torch.zeros(d);
                 print("No dependence on x(t)!");
             else:
-                df_dx[:, i - 1] = df_dx_im1;
+                dF_dx[:, i - 1] = dF_dx_im1;
             
-            if(df_dy_im1 == None):
-                df_dy[:, i - 1] = torch.zeros(d);
+            if(dF_dy_im1 == None):
+                dF_dy[:, i - 1] = torch.zeros(d);
                 print("No dependence on the delay term!");
             else:
-                df_dy[:, i - 1] = df_dy_im1;
+                dF_dy[:, i - 1] = dF_dy_im1;
         
             # Find p at the previous time step. Recall that p satisfies the following DDE:
-            #       p'(t) = -df_dx(t)^T p(t) - df_dy(t)^T p(t + tau) 1_{t + tau < T}(t)
-            # since p(t) = 0 for t > T, the delay term vanishes if t + tau > T
-            k1 : torch.Tensor   = -df_dx[:, i]*p[:, i];
+            #       p'(t) = -dF_dx(t)^T p(t) - dF_dy(t)^T p(t + tau) 1_{t + tau < T}(t)
+            #       p(t)  = 0               if t > T    
+            # Note: since p(t) = 0 for t > T, the delay term vanishes if t + tau > T. We find a 
+            # numerical solution to this DDE using the RK2 method. In this case, we compute
+            #       p(t - dt) \approx p(t) - dt*0.5*(k1 + k2)
+            #       k1 = F(t_i, x(t_i), x(t_i - tau))
+            #       k2 = F(t_i - dt, z(t) - dt*k1, z(t - dt + tau))
+            k1 : torch.Tensor   = -dF_dx[:, i]*p[:, i];
             if(i + N_tau < N):
-                k1 += -df_dy[:, i + N_tau]*p[:, i + N_tau];
+                k1 += -dF_dy[:, i + N_tau]*p[:, i + N_tau];
             
-            k2 : torch.Tensor   = -df_dx[:, i - 1]*(p[:, i] - dt*k1);
+            k2 : torch.Tensor   = -dF_dx[:, i - 1]*(p[:, i] - dt*k1);
             if(i - 1 + N_tau < N):
-                k2 += -df_dy[:, i - 1 + N_tau]*p[:, i - 1 + N_tau];
+                k2 += -dF_dy[:, i - 1 + N_tau]*p[:, i - 1 + N_tau];
             
             p[:, i - 1] = p[:, i] + dt*0.5*(k1 + k2);
 
             # update the gradient for theta. I do this using the trapezodial rule.
-            p_theta : torch.Tensor = p_theta - dt*0.5*(p[:, i - 1]*df_dtheta_im1 + p[:, i]*df_dtheta_i);
+            dL_dtheta : torch.Tensor = dL_dtheta - dt*0.5*(p[:, i - 1]*dF_dtheta_im1 + p[:, i]*dF_dtheta_i);
 
             # Update the gradient for tau. Note that the integral for dL/dtau goes from 
             # tau to T (after a change of variables). 
             if t_im1.item() >= tau.item():
-                x_im1_tau   : torch.Tensor  = x_Values[:, i - 1 - N_tau];
-                y_im1_tau   : torch.Tensor  = x_Values[:, i - 1 - 2*N_tau] if i - 1 - 2*N_tau >= 0 else x_0;
+                x_im1_tau   : torch.Tensor  = x_Pred_Values[:, i - 1 - N_tau];
+                y_im1_tau   : torch.Tensor  = x_Pred_Values[:, i - 1 - 2*N_tau] if i - 1 - 2*N_tau >= 0 else x_0;
                 t_im1_tau   : torch.Tensor  = t_im1 - tau;
                 F_im1_tau   : torch.Tensor  = F(x_im1_tau, y_im1_tau, t_im1_tau);
 
-                x_i_tau     : torch.Tensor  = x_Values[:, i - N_tau  ];
-                y_i_tau     : torch.Tensor  = x_Values[:, i - 2*N_tau] if i - 2*N_tau >= 0 else x_0;
+                x_i_tau     : torch.Tensor  = x_Pred_Values[:, i - N_tau  ];
+                y_i_tau     : torch.Tensor  = x_Pred_Values[:, i - 2*N_tau] if i - 2*N_tau >= 0 else x_0;
                 t_i_tau     : torch.Tensor  = t_i - tau;                
                 F_i_tau     : torch.Tensor  = F(x_i_tau, y_i_tau, t_i_tau);
 
-                p_tau   : torch.Tensor = p_tau - dt*0.5*(p[:, i - 1]*df_dy[:, i - 1]*F_im1_tau + p[:, i]*df_dy[:, i]*F_i_tau);
+                dL_dtau      : torch.Tensor  = dL_dtau - dt*0.5*(p[:, i - 1]*dF_dy[:, i - 1]*F_im1_tau + p[:, i]*dF_dy[:, i]*F_i_tau);
 
             # Finally, update df_dtheta_i
-            df_dtheta_i = df_dtheta_im1;
+            dF_dtheta_i = dF_dtheta_im1;
 
         
         # All done... The kth return argument represents the gradient for the kth argument to forward.
-        return None, p[0].clone(), p_tau, None, p_theta;
+        return None, p[0].clone(), dL_dtau, None, dL_dtheta;
