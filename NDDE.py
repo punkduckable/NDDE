@@ -33,7 +33,7 @@ class NDDE_1D(torch.nn.Module):
         self.Model = Model;
         
 
-    def forward(self, x_0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, x_True_Interp):
+    def forward(self, x_0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor):
         """
         Arguments: 
 
@@ -44,9 +44,6 @@ class NDDE_1D(torch.nn.Module):
 
         T: The final time in our solution to the DDE (See above). This should be a single 
         element tensor.
-
-        x_True_Interp: An interpolation object we can use to evaluate the true solution at 
-        various points in time. We need this during the backward step.
         """
 
         # Run checks.
@@ -59,7 +56,7 @@ class NDDE_1D(torch.nn.Module):
         Model_Params    : torch.Tensor      = Model.Params;
 
         # Evaluate the neural DDE using the Model
-        Trajectory = DDE_adjoint_1D.apply(Model, x_0, tau, T, x_True_Interp, Model_Params);
+        Trajectory = DDE_adjoint_1D.apply(Model, x_0, tau, T, Model_Params);
         return Trajectory;
 
 
@@ -78,7 +75,7 @@ class DDE_adjoint_1D(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, F : torch.nn.Module, x_0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, x_True_Interp, F_Params : torch.Tensor) -> torch.Tensor:
+    def forward(ctx, F : torch.nn.Module, x_0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, F_Params : torch.Tensor) -> torch.Tensor:
         """ 
         -------------------------------------------------------------------------------------------
         Arguments:
@@ -93,9 +90,6 @@ class DDE_adjoint_1D(torch.autograd.Function):
         delay.
 
         T: A single element tensor whose lone element specifies the final simulation time.
-
-        x_True_Interp: An interpolation object we can use to evaluate the true solution at 
-        various points in time. We need this during the backward step.
 
         F_Params: A tensor housing the parameters of the model, F.
 
@@ -120,7 +114,6 @@ class DDE_adjoint_1D(torch.autograd.Function):
             
         # Save non-tensor arguments for backwards.
         ctx.F               = F; 
-        ctx.x_True_Interp   = x_True_Interp;
 
         # Save tensor arguments for backwards
         ctx.save_for_backward(x_0, tau, T, x_Trajectory, t_Trajectory, F_Params);
@@ -134,7 +127,6 @@ class DDE_adjoint_1D(torch.autograd.Function):
     def backward(ctx, grad_y : torch.Tensor) -> Tuple[torch.Tensor]:
         # recover information from the forward pass
         F               : torch.nn.Module                   = ctx.F;
-        x_True_Interp                                       = ctx.x_True_Interp;
         x_0, tau, T, x_Trajectory, t_Trajectory, F_Params   = ctx.saved_tensors;
         d               : int                               = x_0.numel();
 
@@ -155,9 +147,6 @@ class DDE_adjoint_1D(torch.autograd.Function):
 
         # Find time values for backwards pass. 
         t_Values        : torch.Tensor      = torch.linspace(start = 0, end = T, steps = N + 1);
-
-        # Evaluate the interpolation of the true solution at these values.
-        x_True_Values   : torch.Tensor      = torch.from_numpy(x_True_Interp(t_Values.detach().numpy()));
 
         # evaluate the interpolation of the predicted, true solution at these values. 
         x_Pred_Values   : torch.Tensor      = torch.from_numpy(x_Pred_Interp(t_Values.detach().numpy()));
@@ -284,11 +273,17 @@ class DDE_adjoint_1D(torch.autograd.Function):
         dL_dtau         : torch.Tensor      = torch.tensor([0.], dtype = torch.float32);
         dL_dtheta       : torch.Tensor      = torch.zeros_like(F_Params);
 
+        # Now compute dL_dtheta and dL_dtau. In this case, 
+        #   dL_dtau = \sum_{j = 0}^{N_data - 1} \sum_{i = 0}^{d} -2*(x_true_i(t_j) - x_pred_i(t_j))*dx_i(t_j)/dtau
+        #           = \sum_{j = 0}^{N_data - 1} (dL/dx_pred(t_j))*dx(t_j)/dtau
+        # Crucially, we know that the jth column of grad_y holds dL/dx_pred(t_j) (think about it). 
+        # Analogously, 
+        #   dL_dtheta = \sum_{j = 0}^{N_data - 1} (dL/dx_pred(t_j))*dx(t_j)/dtheta
         for j in range(0, N + 1):
-            for i in range(d):
-                dL_dtheta   += -2*(x_True_Values[i, j] - x_Pred_Values[i, j])*dx_dtheta[i, :, j];
-                dL_dtau     += -2*(x_True_Values[i, j] - x_Pred_Values[i, j])*dx_dtau[i, j];
-        
+            dL_dtheta   += torch.matmul(grad_y[:, j].reshape(1, -1), dx_dtheta[:, :, j]).reshape(-1);
+            dL_dtau     += torch.dot(grad_y[:, j], dx_dtau[:, j]);
+
+
         """
         # Set up vectors to hold dL_dtau and dL_dtheta
         dL_dtau         : torch.Tensor      = torch.tensor([0.], dtype = torch.float32);
@@ -319,4 +314,4 @@ class DDE_adjoint_1D(torch.autograd.Function):
         """
 
         # All done... The kth return argument represents the gradient for the kth argument to forward.
-        return None, p[0], dL_dtau, None, None, dL_dtheta;
+        return None, p[0], dL_dtau, None, dL_dtheta;
