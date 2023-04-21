@@ -56,12 +56,12 @@ class NDDE_1D(torch.nn.Module):
         Model_Params    : torch.Tensor      = Model.Params;
 
         # Evaluate the neural DDE using the Model
-        Trajectory = DDE_adjoint_1D.apply(Model, x_0, tau, T, Model_Params);
+        Trajectory = DDE_adjoint.apply(Model, x_0, tau, T, Model_Params);
         return Trajectory;
 
 
 
-class DDE_adjoint_1D(torch.autograd.Function):
+class DDE_adjoint(torch.autograd.Function):
     """
     This function implements the adjoint method so that we can compute the gradients of the loss 
     with respect to tau and the Model's parameters. This class defines a forward and backwards 
@@ -259,7 +259,7 @@ class DDE_adjoint_1D(torch.autograd.Function):
                                                     torch.matmul(p[i, :, N - j + k + 1].reshape(1, -1), dF_dtheta[:, :, k + 1]).reshape(-1) );
                 
                 # From the paper, 
-                #   dx^i(t_j)/dtau  -= \int_0^{t_j - tau} p_i(T - t_j + t + tah) (dF/dtheta)(x(t + tau), x(t), t + tau)F(x(t), x(t - tau), t) dt
+                #   dx^i(t_j)/dtau  -= \int_0^{t_j - tau} p_i(T - t_j + t + tau) (dF/dtau)(x(t + tau), x(t), t + tau)F(x(t), x(t - tau), t) dt
                 # We also compute this integral using the trapezodial rule.
                 for k in range(0, j - N_tau):
                     dx_dtau[i, j] -= dt*0.5*(   torch.dot(p[i, :, N - j + k + N_tau    ],   torch.mv(dF_dy[:, :, k + N_tau    ],    F_Values[:, k    ])) + 

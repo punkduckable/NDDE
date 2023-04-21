@@ -2,15 +2,39 @@ import torch;
 
 
 
-def L2_Loss(Predict_Trajectory      : torch.Tensor, 
+def Integral_Loss(
+            Predict_Trajectory      : torch.Tensor, 
             Target_Trajectory       : torch.Tensor, 
             t_Trajectory            : torch.Tensor) -> torch.Tensor:
     """
-    TO DO
+    This function approximates the loss 
+        L(x_p(t), x_t(t)) = \int_{0}^{T} ||x_p(t) - x_t(t)||^2 dt
+    Here, x_p represents the predicted trajectory while x_t is the true or target one. 
+
+    -----------------------------------------------------------------------------------------------
+    Arguments: 
+
+    Precict_Trajectory: The trajectory that we get when we use our current model to forecast the
+    trajectory. This should be a d x N + 1 tensor, where N is the number of time steps. The jth 
+    column should, therefore, hold the value of the predicted solution at the jth time value.
+
+    Target_Trajectory: The trajectory we want the predicted trajectory to match. This should be 
+    a d x N + 1 tensor whose jth column holds the value of the true/target trajectory at the jth 
+    time value.
+
+    t_Trajectory: a 1D tensor whose jth element holds the time value associated with the jth column 
+    of the Predicted or Target trajectory. 
 
     This function approximates the loss 
         L(x_p(t), x_t(t)) = \int_{0}^{T} ||x_p(t) - x_t(t)||^2 dt
     Here, x_p represents the predicted trajectory while x_t is the true or target one. 
+    
+    -----------------------------------------------------------------------------------------------
+    Returns:
+
+    If there are N time steps, then we return the value
+        \sum_{j = 0}^{N} 0.5*(t[j + 1] - t[j])*(||x_p(t_j) - x_t(t_j)||_2^2 + ||x_p(t_{j + 1}) - x_t(t_{j + 1})||_2^2
+    where t_j represents the jth entry of t_trajectory.
     """
     
     # Run checks!
@@ -26,13 +50,15 @@ def L2_Loss(Predict_Trajectory      : torch.Tensor,
 
     # Now compute the loss using the trapezodial rule.
     Loss        : torch.Tensor  = torch.zeros(1, dtype = torch.float32);
-    for i in range(N_Data - 1):
-        Loss += (t_Trajectory[i + 1] - t_Trajectory[i])*0.5*(Residual[i + 1] + Residual[i]);
+    for j in range(N_Data - 1):
+        Loss += 0.5*(t_Trajectory[j + 1] - t_Trajectory[j])*(Residual[j + 1] + Residual[j]);
     return Loss;
 
 
 
-def SSE_Loss(Predict_Trajectory : torch.Tensor, Target_Trajectory : torch.Tensor) -> torch.Tensor:
+def SSE_Loss(   Predict_Trajectory  : torch.Tensor, 
+                Target_Trajectory   : torch.Tensor,  
+                t_Trajectory        : torch.Tensor) -> torch.Tensor:
     """
     This function defines the sum of squares error loss. In particular, for each time value, t_i, 
     we compute the square L2 loss between the predicted and target trajectories at time t_i. We 
@@ -41,16 +67,22 @@ def SSE_Loss(Predict_Trajectory : torch.Tensor, Target_Trajectory : torch.Tensor
     -----------------------------------------------------------------------------------------------
     Arguments:
 
-    Predicted trajectory: The trajectory that we get when we use our current model to forecast the
-    trajectory.
+    Precict_Trajectory: The trajectory that we get when we use our current model to forecast the
+    trajectory. This should be a d x N + 1 tensor, where N is the number of time steps. The jth 
+    column should, therefore, hold the value of the predicted solution at the jth time value.
 
-    Target_Trajectory: The trajectory we want the predicted trajectory to match.
+    Target_Trajectory: The trajectory we want the predicted trajectory to match. This should be 
+    a d x N + 1 tensor whose jth column holds the value of the true/target trajectory at the jth 
+    time value.
+
+    t_Trajectory: a 1D tensor whose jth element holds the time value associated with the jth column 
+    of the Predicted or Target trajectory. We do not use this argument in this function.
 
     -----------------------------------------------------------------------------------------------
     Returns: 
 
     If there are N time steps, then we return 
-        \sum_{i = 0}^{N - 1} ||x_predict(t_i) - x_target(t_i)||_2^2.
+        \sum_{i = 0}^{N} ||x_predict(t_i) - x_target(t_i)||_2^2.
     """
 
     # Run checks. 
