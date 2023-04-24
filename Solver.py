@@ -46,7 +46,7 @@ def Forward_Euler(F : torch.nn.Module, x_0 : torch.Tensor, tau : torch.Tensor, T
     N   : int           = int(torch.floor(T/dt).item());
 
     # compute the difference in indices between x(t) and x(t - tau).
-    # This is just tau/dt = tau/(.01*tau) = 10.
+    # This is just tau/dt = tau/(.1*tau) = 10.
     N_tau  : int           = 10;
 
     # tensor to hold the solution, time steps. Note the +1 is to account for 
