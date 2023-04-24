@@ -65,7 +65,8 @@ class NDDE_1D(torch.nn.Module):
         Model_Params    : torch.Tensor      = Model.Params;
 
         # Evaluate the neural DDE using the Model
-        Trajectory = DDE_adjoint_l.apply(Model, x_0, tau, T, l, x_True_Interp, Model_Params);
+        Trajectory = DDE_adjoint_SSE.apply(Model, x_0, tau, T, Model_Params);
+        #Trajectory = DDE_adjoint_l.apply(Model, x_0, tau, T, l, x_True_Interp, Model_Params);
         return Trajectory;
 
 
@@ -218,11 +219,7 @@ class DDE_adjoint_SSE(torch.autograd.Function):
             # Enable gradient tracking! We need this to compute the gradients of F. 
             torch.set_grad_enabled(True);
 
-            # Fetch x, y from the ith, i-1th time step.
-            t_j         : torch.Tensor  = t_Values[j];
-            x_j         : torch.Tensor  = x_Pred_Values[:, j].requires_grad_(True);
-            y_j         : torch.Tensor  = x_Pred_Values[:, j - N_tau ].requires_grad_(True) if j - N_tau >= 0 else x_0;
-
+            # Fetch x, y from the i-1th time step.
             t_jm1       : torch.Tensor  = t_Values[j - 1];
             x_jm1       : torch.Tensor  = x_Pred_Values[:, j - 1         ].requires_grad_(True);
             y_jm1       : torch.Tensor  = x_Pred_Values[:, j - 1 - N_tau ].requires_grad_(True) if j - 1 - N_tau >= 0 else x_0;
@@ -259,15 +256,15 @@ class DDE_adjoint_SSE(torch.autograd.Function):
                 if(j - 1 + N_tau < N):
                     k2 += -torch.mv(torch.transpose(dF_dy[:, :, j - 1 + N_tau], 0, 1), p[i, :, j - 1 + N_tau]);
                 
-                p[i, :, j - 1] = p[i, :, j] + dt*0.5*(k1 + k2);
+                p[i, :, j - 1] = p[i, :, j] - dt*0.5*(k1 + k2);
             """
             for i in range(d):
                 if j >= N - N_tau:
-                    p[i, :, j - 1] = p[i, :, j] - dt*(torch.mv(torch.transpose(dF_dx[:, :, j], 0, 1), p[i, :, j])); 
+                    p[i, :, j - 1] = p[i, :, j] - dt*(-torch.mv(torch.transpose(dF_dx[:, :, j], 0, 1), p[i, :, j])); 
                 else:
-                    p[i, :, j - 1] = p[i, :, j] - dt*(torch.mv(torch.transpose(dF_dx[:, :, j], 0, 1), p[i, :, j]) + torch.mv(torch.transpose(dF_dy[:, :, j + N_tau], 0, 1), p[i, :, j + N_tau]));
+                    p[i, :, j - 1] = p[i, :, j] - dt*(-torch.mv(torch.transpose(dF_dx[:, :, j], 0, 1), p[i, :, j]) + 
+                                                      -torch.mv(torch.transpose(dF_dy[:, :, j + N_tau], 0, 1), p[i, :, j + N_tau]));
             """
-
 
         # Plot the final trajectory, gradients.
         plt.figure(0);
@@ -317,8 +314,8 @@ class DDE_adjoint_SSE(torch.autograd.Function):
                 #   dx^i(t_j)/dtau  -= \int_0^{t_j - tau} p_i(T - t_j + t + tau) (dF/dtau)(x(t + tau), x(t), t + tau)F(x(t), x(t - tau), t) dt
                 # We also compute this integral using the trapezodial rule.
                 for k in range(0, j - N_tau):
-                    dx_dtau[i, j] -= dt*0.5*(   torch.dot(p[i, :, N - j + k + N_tau    ],   torch.mv(dF_dy[:, :, k + N_tau    ],    F_Values[:, k    ])) + 
-                                                torch.dot(p[i, :, N - j + k + N_tau + 1],   torch.mv(dF_dy[:, :, k + N_tau + 1],    F_Values[:, k + 1])) );
+                    dx_dtau[i, j] -= dt*0.5*(   torch.dot(p[i, :, N - j + k + N_tau    ],   torch.mv(dF_dy[:, :, k + N_tau    ], F_Values[:, k    ])) + 
+                                                torch.dot(p[i, :, N - j + k + N_tau + 1],   torch.mv(dF_dy[:, :, k + N_tau + 1], F_Values[:, k + 1])) );
 
 
 
@@ -337,7 +334,7 @@ class DDE_adjoint_SSE(torch.autograd.Function):
         #   dL_dtheta = \sum_{j = 0}^{N_data - 1} (dL/dx_pred(t_j))*dx(t_j)/dtheta
         for j in range(0, N + 1):
             dL_dtheta   += torch.matmul(grad_y[:, j].reshape(1, -1), dx_dtheta[:, :, j]).reshape(-1);
-            dL_dtau     += torch.dot(grad_y[:, j], dx_dtau[:, j]);
+            dL_dtau     += torch.dot(   grad_y[:, j],                dx_dtau  [:, j   ]);
 
 
 
@@ -515,11 +512,7 @@ class DDE_adjoint_l(torch.autograd.Function):
             # Enable gradient tracking! We need this to compute the gradients of F. 
             torch.set_grad_enabled(True);
 
-            # Fetch x, y from the ith, i-1th time step.
-            t_j         : torch.Tensor  = t_Values[j];
-            x_j         : torch.Tensor  = x_Pred_Values[:, j].requires_grad_(True);
-            y_j         : torch.Tensor  = x_Pred_Values[:, j - N_tau ].requires_grad_(True) if j - N_tau >= 0 else x_0;
-
+            # Fetch x, y from the i-1th time step.
             t_jm1       : torch.Tensor  = t_Values[j - 1];
             x_jm1       : torch.Tensor  = x_Pred_Values[:, j - 1         ].requires_grad_(True);
             y_jm1       : torch.Tensor  = x_Pred_Values[:, j - 1 - N_tau ].requires_grad_(True) if j - 1 - N_tau >= 0 else x_0;
@@ -541,6 +534,8 @@ class DDE_adjoint_l(torch.autograd.Function):
             l_x_jm1     : torch.Tensor  = l(x_jm1, x_True_jm1);
             dl_dx[:, j - 1]             = torch.autograd.grad(outputs = l_x_jm1, inputs = x_jm1)[0];
 
+            #print("%8.5f, %8.5f, " % (dl_dx[:, j].item(), (2*(x_Pred_Values[:, j] - x_True_Values[:, j])).item()), end = ' ');
+
             # We are all done tracking gradients.
             torch.set_grad_enabled(False);
         
@@ -561,17 +556,16 @@ class DDE_adjoint_l(torch.autograd.Function):
             if(j - 1 + N_tau < N):
                 k2 += -torch.mv(torch.transpose(dF_dy[:, :, j - 1 + N_tau], 0, 1), p[:, j - 1 + N_tau]);
 
-            p[:, j - 1] = p[:, j] + dt*0.5*(k1 + k2);
+            p[:, j - 1] = p[:, j] - dt*0.5*(k1 + k2);
             """
-
             if(j + N_tau >= N):
-                p[:, j - 1] = p[:, j] - dt*torch.mv(torch.transpose(dF_dx[:, :, j], 0, 1), p[:, j]) + dl_dx[:, j];
+                p[:, j - 1] = p[:, j] - dt*(-torch.mv(torch.transpose(dF_dx[:, :, j        ], 0, 1), p[:, j        ]) + 
+                                            dl_dx[:, j]);
             else: 
-                p[:, j - 1] = p[:, j] - dt*(torch.mv(torch.transpose(dF_dx[:, :, j        ], 0, 1), p[:, j        ]) + 
-                                            torch.mv(torch.transpose(dF_dy[:, :, j + N_tau], 0, 1), p[:, j + N_tau]) + 
+                p[:, j - 1] = p[:, j] - dt*(-torch.mv(torch.transpose(dF_dx[:, :, j        ], 0, 1), p[:, j        ]) + 
+                                            -torch.mv(torch.transpose(dF_dy[:, :, j + N_tau], 0, 1), p[:, j + N_tau]) + 
                                             dl_dx[:, j]);
 
-    
         # Plot the final trajectory, gradients
         plt.figure(0);
         plt.plot(t_Values, p[0, :].detach().numpy());
@@ -610,20 +604,19 @@ class DDE_adjoint_l(torch.autograd.Function):
         # Compute dL_dtau and dL_dtheta.
         
         # Set up vectors to hold dL_dtau and dL_dtheta
-        dL_dtau         : torch.Tensor      = torch.tensor([0.], dtype = torch.float32);
         dL_dtheta       : torch.Tensor      = torch.zeros_like(F_Params);
+        dL_dtau         : torch.Tensor      = torch.tensor([0.], dtype = torch.float32);
 
         # Now compute dL_dtheta and dL_dtau. In this case, 
         #   dL_dtheta   =  \int_{t = 0}^T p(t) dF_dtheta(x(t), x(t - tau), t) dt
         #   dL_dtau     = -\int_{t = 0}^{T - tau} p(t + tau) dF_dy(x(t + tau), x(t), t) F(x(t), x(t - tau), t) dt
         # We compute these integrals using the trapezodial rule.
         for j in range(0, N):
-            dL_dtheta   += 0.5*(t_Values[j + 1] - t_Values[j])*(torch.matmul(p[:, j    ].reshape(1, -1), dF_dtheta[:, :, j    ]).reshape(-1) +
-                                                                torch.matmul(p[:, j + 1].reshape(1, -1), dF_dtheta[:, :, j + 1]).reshape(-1));
+            dL_dtheta   +=  0.5*dt*(torch.matmul(p[:, j    ].reshape(1, -1), dF_dtheta[:, :, j    ]).reshape(-1) +
+                                    torch.matmul(p[:, j + 1].reshape(1, -1), dF_dtheta[:, :, j + 1]).reshape(-1));
         for j in range(0, N - N_tau):
-            dL_dtau     += 0.5*(t_Values[j + 1] - t_Values[j])*(torch.dot(p[:, j + N_tau    ], torch.matmul(dF_dy[:, :, j + N_tau    ], F_Values[:, j    ])) + 
-                                                                torch.dot(p[:, j + N_tau + 1], torch.matmul(dF_dy[:, :, j + N_tau + 1], F_Values[:, j + 1])));
-
+            dL_dtau     -=  0.5*dt*(torch.dot(p[:, j + N_tau    ], torch.mv(dF_dy[:, :, j + N_tau    ], F_Values[:, j    ])) + 
+                                    torch.dot(p[:, j + N_tau + 1], torch.mv(dF_dy[:, :, j + N_tau + 1], F_Values[:, j + 1])));
 
         # All done... The kth return argument represents the gradient for the kth argument to forward.
         return None, p[0], dL_dtau, None, None, None, dL_dtheta;
