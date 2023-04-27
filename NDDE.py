@@ -65,8 +65,8 @@ class NDDE_1D(torch.nn.Module):
         Model_Params    : torch.Tensor      = Model.Params;
 
         # Evaluate the neural DDE using the Model
-        Trajectory = DDE_adjoint_SSE.apply(Model, x_0, tau, T, Model_Params);
-        #Trajectory = DDE_adjoint_l.apply(Model, x_0, tau, T, l, x_True_Interp, Model_Params);
+        #Trajectory = DDE_adjoint_SSE.apply(Model, x_0, tau, T, Model_Params);
+        Trajectory = DDE_adjoint_l.apply(Model, x_0, tau, T, l, x_True_Interp, Model_Params);
         return Trajectory;
 
 
@@ -612,11 +612,11 @@ class DDE_adjoint_l(torch.autograd.Function):
         #   dL_dtau     = -\int_{t = 0}^{T - tau} p(t + tau) dF_dy(x(t + tau), x(t), t) F(x(t), x(t - tau), t) dt
         # We compute these integrals using the trapezodial rule.
         for j in range(0, N):
-            dL_dtheta   +=  0.5*dt*(torch.matmul(p[:, j    ].reshape(1, -1), dF_dtheta[:, :, j    ]).reshape(-1) +
+            dL_dtheta   -=  0.5*dt*(torch.matmul(p[:, j    ].reshape(1, -1), dF_dtheta[:, :, j    ]).reshape(-1) +
                                     torch.matmul(p[:, j + 1].reshape(1, -1), dF_dtheta[:, :, j + 1]).reshape(-1));
-        for j in range(0, N - N_tau):
-            dL_dtau     -=  0.5*dt*(torch.dot(p[:, j + N_tau    ], torch.mv(dF_dy[:, :, j + N_tau    ], F_Values[:, j    ])) + 
-                                    torch.dot(p[:, j + N_tau + 1], torch.mv(dF_dy[:, :, j + N_tau + 1], F_Values[:, j + 1])));
+        for j in range(N_tau, N):
+            dL_dtau     +=  0.5*dt*(torch.dot(p[:, j    ], torch.mv(dF_dy[:, :, j    ], F_Values[:, j - N_tau    ])) + 
+                                    torch.dot(p[:, j + 1], torch.mv(dF_dy[:, :, j + 1], F_Values[:, j - N_tau + 1])));
 
         # All done... The kth return argument represents the gradient for the kth argument to forward.
         return None, p[0], dL_dtau, None, None, None, dL_dtheta;
