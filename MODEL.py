@@ -75,7 +75,7 @@ class Exponential_Model(torch.nn.Module):
     x, y, and t. If x = x(t), y = x(t - \tau) then return F evaluated at those inputs. 
     """
 
-    def __init__(self, theta_0 : float = 2.0, theta_1 : float = 2.0):
+    def __init__(self, theta_0 : float = -2.0, theta_1 : float = -2.0):
         """ 
         Currently, this MODEL class is set up to act as a logistic map:
             F(x, y, t) = theta_0*x + theta_1*y
@@ -84,7 +84,7 @@ class Exponential_Model(torch.nn.Module):
         """
         
         # Call the super class initializer. 
-        super(Logistic_Model, self).__init__();
+        super(Exponential_Model, self).__init__();
 
         # Set model parameters.
         self.Params = torch.nn.parameter.Parameter(torch.tensor([theta_0, theta_1], dtype = torch.float32, requires_grad = True));
