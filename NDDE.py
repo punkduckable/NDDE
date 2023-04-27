@@ -7,6 +7,10 @@ from    Solver  import  RK2         as DDE_Solver;
 
 
 
+Debug : bool = True;
+
+
+
 class NDDE_1D(torch.nn.Module):
     """
     Here, we define the NDDE_1D class. This class acts as a wrapper around a MODEL object. Recall 
@@ -266,31 +270,32 @@ class DDE_adjoint_SSE(torch.autograd.Function):
                                                       -torch.mv(torch.transpose(dF_dy[:, :, j + N_tau], 0, 1), p[i, :, j + N_tau]));
             """
 
-        # Plot the final trajectory, gradients.
-        plt.figure(0);
-        plt.plot(t_Values, p[0, 0, :].detach().numpy());
-        plt.xlabel(r"$t$");
-        plt.ylabel(r"$p(t)$");
-        plt.title("Adjoint");
+        if(Debug == True):
+            # Plot the final trajectory, gradients.
+            plt.figure(0);
+            plt.plot(t_Values, p[0, 0, :].detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel(r"$p(t)$");
+            plt.title("Adjoint");
 
-        plt.figure(1);
-        plt.plot(t_Values, x_Pred_Values[0, :].detach().numpy());
-        plt.xlabel(r"$t$");
-        plt.ylabel("predicted position");
-        plt.title("Predicted trajectory");
-        plt.yscale('log');
+            plt.figure(1);
+            plt.plot(t_Values, x_Pred_Values[0, :].detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel("predicted position");
+            plt.title("Predicted trajectory");
+            plt.yscale('log');
 
-        plt.figure(2);
-        plt.plot(t_Values, dF_dx.reshape(-1).detach().numpy());
-        plt.xlabel(r"$t$");
-        plt.ylabel(r"$(dF/dx)(t)$");
-        plt.title("Gradient of F with respect to $x(t)$ along the predicted trajectory");
+            plt.figure(2);
+            plt.plot(t_Values, dF_dx.reshape(-1).detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel(r"$(dF/dx)(t)$");
+            plt.title("Gradient of F with respect to $x(t)$ along the predicted trajectory");
 
-        plt.figure(3);
-        plt.plot(t_Values, dF_dy.reshape(-1).detach().numpy());
-        plt.xlabel(r"$t$");
-        plt.ylabel(r"$(dF/dy)(t)$");
-        plt.title("Gradient of F with respect to $y(t) = x(t - tau)$ along the predicted trajectory");
+            plt.figure(3);
+            plt.plot(t_Values, dF_dy.reshape(-1).detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel(r"$(dF/dy)(t)$");
+            plt.title("Gradient of F with respect to $y(t) = x(t - tau)$ along the predicted trajectory");
 
 
     
@@ -566,37 +571,38 @@ class DDE_adjoint_l(torch.autograd.Function):
                                             -torch.mv(torch.transpose(dF_dy[:, :, j + N_tau], 0, 1), p[:, j + N_tau]) + 
                                             dl_dx[:, j]);
 
-        # Plot the final trajectory, gradients
-        plt.figure(0);
-        plt.plot(t_Values, p[0, :].detach().numpy());
-        plt.xlabel(r"$t$");
-        plt.ylabel(r"$p(t)$");
-        plt.title("Adjoint");
+        if(Debug == True):
+            # Plot the final trajectory, gradients
+            plt.figure(0);
+            plt.plot(t_Values, p[0, :].detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel(r"$p(t)$");
+            plt.title("Adjoint");
 
-        plt.figure(1);
-        plt.plot(t_Values, x_Pred_Values[0, :].detach().numpy());
-        plt.xlabel(r"$t$");
-        plt.ylabel("predicted position");
-        plt.title("Predicted trajectory");
-        plt.yscale('log');
+            plt.figure(1);
+            plt.plot(t_Values, x_Pred_Values[0, :].detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel("predicted position");
+            plt.title("Predicted trajectory");
+            plt.yscale('log');
 
-        plt.figure(2);
-        plt.plot(t_Values, dF_dx.reshape(-1).detach().numpy());
-        plt.xlabel(r"$t$");
-        plt.ylabel(r"$(dF/dx)(t)$");
-        plt.title("Gradient of F with respect to $x(t)$ along the predicted trajectory");
+            plt.figure(2);
+            plt.plot(t_Values, dF_dx.reshape(-1).detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel(r"$(dF/dx)(t)$");
+            plt.title("Gradient of F with respect to $x(t)$ along the predicted trajectory");
 
-        plt.figure(3);
-        plt.plot(t_Values, dF_dy.reshape(-1).detach().numpy());
-        plt.xlabel(r"$t$");
-        plt.ylabel(r"$(dF/dy)(t)$");
-        plt.title("Gradient of F with respect to $y(t) = x(t - tau)$ along the predicted trajectory");
+            plt.figure(3);
+            plt.plot(t_Values, dF_dy.reshape(-1).detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel(r"$(dF/dy)(t)$");
+            plt.title("Gradient of F with respect to $y(t) = x(t - tau)$ along the predicted trajectory");
 
-        plt.figure(4);
-        plt.plot(t_Values, dl_dx.reshape(-1).detach().numpy());
-        plt.xlabel(r"$t$");
-        plt.ylabel(r"$(dl/dx)(t)$");
-        plt.title("Gradient of l with respect to $x(t)$ along the predicted trajectory");
+            plt.figure(4);
+            plt.plot(t_Values, dl_dx.reshape(-1).detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel(r"$(dl/dx)(t)$");
+            plt.title("Gradient of l with respect to $x(t)$ along the predicted trajectory");
 
 
 
