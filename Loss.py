@@ -1,6 +1,8 @@
 import torch;
 
-
+# Set up the logger.
+import logging;
+LOGGER : logging.Logger = logging.getLogger(__name__);
 
 def l(x : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
     """

@@ -34,6 +34,7 @@ def Forward_Euler(F : torch.nn.Module, x_0 : torch.Tensor, tau : torch.Tensor, T
     # Checks
     assert(len(x_0.shape)   == 1);
     assert(tau.numel()      == 1);
+    assert(tau.item()       >  0);
     assert(T.numel()        == 1);
 
     # Find the dimension of x. 

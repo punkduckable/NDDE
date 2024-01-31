@@ -5,9 +5,12 @@ import  matplotlib.pyplot as plt;
 
 from    Solver  import  RK2         as DDE_Solver;
 
+# Logger setup 
+import logging;
+LOGGER : logging.Logger = logging.getLogger(__name__);
 
-
-Debug : bool = True;
+# Should we make debug plots?
+Debug_Plots : bool = False;
 
 
 
@@ -69,20 +72,20 @@ class NDDE_1D(torch.nn.Module):
         Model_Params    : torch.Tensor      = Model.Params;
 
         # Evaluate the neural DDE using the Model
-        Trajectory = DDE_adjoint_SSE.apply(Model, x_0, tau, T, Model_Params);
+        Trajectory = DDE_adjoint_Backward_SSE.apply(Model, x_0, tau, T, Model_Params);
         #Trajectory = DDE_adjoint_l.apply(Model, x_0, tau, T, l, x_True_Interp, Model_Params);
         return Trajectory;
 
 
 
-class DDE_adjoint_SSE(torch.autograd.Function):
+class DDE_adjoint_Backward_SSE(torch.autograd.Function):
     """
     This class implements the forward and backward passes for updating the parameters and tau. This
     particular class is designed for the SSE loss function. 
     
     Forward Pass - During the forward pass, we use a DDE solver to map the initial state, x_0, 
     along a predicted trajectory. In particular, we solve the following DDE
-            x'(t)   = F(x(t), x(t - tau), t, theta) t \in [0, T]
+            x'(t)   = F(x(t), x(t - tau), t, theta) t \in [0,    T]
             x(t)    = x_0                           t \in [-tau, 0]
     
     Backward pass - During the backward pass, we use the adjoint sensitivity method to find the 
@@ -270,7 +273,7 @@ class DDE_adjoint_SSE(torch.autograd.Function):
                                                       -torch.mv(torch.transpose(dF_dy[:, :, j + N_tau], 0, 1), p[i, :, j + N_tau]));
             """
 
-        if(Debug == True):
+        if(Debug_Plots == True):
             # Plot the final trajectory, gradients.
             plt.figure(0);
             plt.plot(t_Values, p[0, 0, :].detach().numpy());
@@ -310,14 +313,14 @@ class DDE_adjoint_SSE(torch.autograd.Function):
                 # From the paper, 
                 #   dx^i(t_j)/dtheta = \int_0^t_j p_i(T - t_j + t) (dF/dtheta)(x(t), x(t - tau)) dt
                 # Here, p_i is the adjoint for the ith component of p. We compute this integral 
-                # the trapezodial rule.
+                # the trapezoidal rule.
                 for k in range(0, j):
                     dx_dtheta[i, :, j] += dt*0.5*(  torch.matmul(p[i, :, N - j + k    ].reshape(1, -1), dF_dtheta[:, :, k    ]).reshape(-1) + 
                                                     torch.matmul(p[i, :, N - j + k + 1].reshape(1, -1), dF_dtheta[:, :, k + 1]).reshape(-1) );
                 
                 # From the paper, 
                 #   dx^i(t_j)/dtau  -= \int_0^{t_j - tau} p_i(T - t_j + t + tau) (dF/dtau)(x(t + tau), x(t), t + tau)F(x(t), x(t - tau), t) dt
-                # We also compute this integral using the trapezodial rule.
+                # We also compute this integral using the trapezoidal rule.
                 for k in range(0, j - N_tau):
                     dx_dtau[i, j] -= dt*0.5*(   torch.dot(p[i, :, N - j + k + N_tau    ],   torch.mv(dF_dy[:, :, k + N_tau    ], F_Values[:, k    ])) + 
                                                 torch.dot(p[i, :, N - j + k + N_tau + 1],   torch.mv(dF_dy[:, :, k + N_tau + 1], F_Values[:, k + 1])) );
@@ -349,7 +352,7 @@ class DDE_adjoint_SSE(torch.autograd.Function):
 
 
 
-class DDE_adjoint_l(torch.autograd.Function):
+class DDE_adjoint_Backward_l(torch.autograd.Function):
     """
     This class implements the forward and backward passes for updating the parameters and tau. This
     particular class is designed for a loss function of the form
@@ -571,7 +574,7 @@ class DDE_adjoint_l(torch.autograd.Function):
                                             -torch.mv(torch.transpose(dF_dy[:, :, j + N_tau], 0, 1), p[:, j + N_tau]) + 
                                             dl_dx[:, j]);
 
-        if(Debug == True):
+        if(Debug_Plots == True):
             # Plot the final trajectory, gradients
             plt.figure(0);
             plt.plot(t_Values, p[0, :].detach().numpy());
@@ -616,7 +619,7 @@ class DDE_adjoint_l(torch.autograd.Function):
         # Now compute dL_dtheta and dL_dtau. In this case, 
         #   dL_dtheta   =  \int_{t = 0}^T p(t) dF_dtheta(x(t), x(t - tau), t) dt
         #   dL_dtau     = -\int_{t = 0}^{T - tau} p(t + tau) dF_dy(x(t + tau), x(t), t) F(x(t), x(t - tau), t) dt
-        # We compute these integrals using the trapezodial rule.
+        # We compute these integrals using the trapezoidal rule.
         for j in range(0, N):
             dL_dtheta   -=  0.5*dt*(torch.matmul(p[:, j    ].reshape(1, -1), dF_dtheta[:, :, j    ]).reshape(-1) +
                                     torch.matmul(p[:, j + 1].reshape(1, -1), dF_dtheta[:, :, j + 1]).reshape(-1));
@@ -626,3 +629,227 @@ class DDE_adjoint_l(torch.autograd.Function):
 
         # All done... The kth return argument represents the gradient for the kth argument to forward.
         return None, p[0], dL_dtau, None, None, None, dL_dtheta;
+
+
+
+class DDE_Adjoint_Forward_l(torch.autograd.Function):
+    """
+    This class defines the forward and backwards passes for updating the parameters and tau of 
+    the right hand side of a DDE:
+        x'(t)   = F(x(t), x(t - \tau), t, \theta)                           t \in [0,       T]
+        x(t)    = x_0                                                       t \in [-\tau,   0]
+    We update these parameters in order to minimize a loss function of the form
+        Loss(x) = \int_{0}^{T} l(x(t)) dt 
+    where l is some function of the predicted solution, x. 
+
+    Since x depends on theta, tau, and x_0, so does the loss. Notice that
+        (d/dtheta) Loss(x) = \int_{0}^{T} (dl/dx(t))(d/dtheta)x(t) dt 
+        (d/dtau)   Loss(x) = \int_{0}^{T} (dl/dx(t))(d/dtau)x(t)   dt 
+        (d/dx_0)   Loss(x) = \int_{0}^{T} (dl/dx(t))(d/dx_0)x(t)   dt
+    Thus, to find the derivatives of the loss, we need to find the derivatives of x (at each time, 
+    t) with respect to theta, tau, and x_0. 
+
+    We find these derivatives using the so called "forward method". To begin, notice that the 
+    above DDE tells us that
+        x'(t) - F(x(t), x(t - \tau), t, \theta) = 0                         t \in [0,       T]
+    In particular, this expression must remain true for each value of theta, tau, and x_0. Thus, 
+    for each time t \in [0, T], the map (\theta, \tau, x_0) -> x'(t) - F(x(t), x(t - \tau), t, 
+    \theta) is constant. In particular, this tells us that
+        (d/dtheta)[x'(t) - F(x(t), x(t - \tau), t, \theta)] = 0             t \in [0,       T]
+    Therefore,
+        [d/dtheta x]'(t) =  (d/dx(t))F(t)(d/dtheta)x(t) + 
+                            (d/dx(t - \tau))F(t)(d/dtheta)x(t - \tau) + 
+                            (d/dtheta)F(t)                                  t \in [0,       T]
+
+    Using the fact that (d/dtheta)x is zero for t < \tau, we can simplify this as
+        [d/dtheta x]'(t) =  (d/dx(t))F(t)(d/dtheta)x(t) + 
+                            (d/dx(t - \tau))F(t)(d/dtheta)x(t - \tau) 1_[\tau, T] + 
+                            (d/dtheta)F(t)                                  t \in [0,       T]        
+    With
+        (d/dtheta)x(t)   =  0                                               t \in [-\tau,   0]
+    Repeating the above steps for \tau gives
+        [(d/dtau) x]'(t)    =   (dF/dx(t))(d/dtau)x(t) +
+                                (dF/dx(t - \tau))(d/dtau)x(t - \tau) 1_[\tau, T] -
+                                (dF/dx(t - \tau))x'(t - \tau)
+                            =   (dF/dx(t))(d/dtau)x(t) +
+                                (dF/dx(t - \tau))(d/dtau)x(t - \tau) 1_[\tau, T] -
+                                (dF/dx(t - \tau))F(t - \tau) 1_[\tau, T]    t \in [0,       T]
+        (d/dtau)x(t)        =   0                                           t \in [-\tau,   0]
+    Finally, repeating the same logic for x_0 gives
+        [(d/dx_0) x]'(t)    =   (dF/dx(t)) (d/dx_0)x(t) + 
+                                (dF/dx(t - tau)) (d/dx_0) x(t - tau)        t \in [0,       T]
+        (d/dx_0)x(t)        =   Id                                          t \in [-tau,    0]
+    (where Id is the dxd identity matrix).
+
+    These expressions give us DDEs for the derivatives of x (at each time, t \in [0, T]) with 
+    respect to theta, tau, and x_0. We solve these DDEs as we solve the DDE for x. Once we have 
+    their solutions, we can use them to find the derivative of the loss with respect to theta, tau, 
+    and x_0.
+
+    In this class, the forward method computes x(t) for each time in [0, T]. The backward method
+    computes (d/dtheta)x(t), (d/dtau)x(t), and (d/dx_0)x(t) for each time in [0, T] and then uses 
+    these values to compute the gradient of the loss with respect to theta, tau, and x_0.
+    """
+
+    @staticmethod
+    def forward(ctx, 
+                F               : torch.nn.Module, 
+                x_0             : torch.Tensor, 
+                tau             : torch.Tensor, 
+                T               : torch.Tensor, 
+                l               : Callable, 
+                x_True_Interp   : Callable, 
+                F_Params        : torch.Tensor) -> torch.Tensor:
+        """
+        TO DO
+        """
+
+        # To begin, let's run checks. 
+        assert(T.numel()        == 1);
+        assert(tau.numel()      == 1);
+        assert(len(x_0.shape)   == 1);
+
+        # Now, let's get the forward trajectory (solve for x at each time in [0, T])
+        x_Pred_Trajectory, t_Trajectory     = DDE_Solver(F = F, X_0 = x_0, tau = tau, T = T);
+
+        # Save non-tensor variables for the backward step.
+        ctx.F             = F;
+        ctx.l             = l;
+        ctx.x_True_Interp = x_True_Interp;
+
+        # Save tensor variables for the backwards step.
+        ctx.save_for_backward(x_0, tau, T, x_Pred_Trajectory, t_Trajectory, F_Params);
+
+        # All done!
+        return x_Pred_Trajectory.clone();
+
+    
+    @staticmethod
+    def backward(ctx, grad_y : torch.Tensor) -> Tuple[torch.Tensor]:
+        """
+        TO DO
+        """
+
+        ###########################################################################################
+        # Set up.
+
+        # Fetch variables we saved in the forward method. 
+        F                   : torch.Module  = ctx.F;
+        l                   : Callable      = ctx.l;
+        x_True_Interp   : Callable          = ctx.x_True_Interp;
+        x_0, tau, T, x_Pred_Trajectory, t_Trajectory, F_Params = ctx.saved_tensors;
+
+        # Find the true solution at the times we found the predicted solution. 
+        x_True_Trajectory   : torch.Tensor  = torch.from_numpy(x_True_Interp(t_Trajectory.detach().numpy()));
+
+
+
+        ###########################################################################################
+        # Solve for (d/dtheta)x(t) and (d/dtau)x(t).
+    
+        # We can now use this information to solve for (d/dtheta)x(t) and (d/dtau)x(t) at each 
+        # time in t_Trajectory. We do this using the forward euler method.
+        d           : int       = x_0.shape[0];
+        N           : int       = t_Trajectory.shape[1] - 1;
+        N_Params    : int       = F_Params.numel();
+        dt          : float     = t_Trajectory[1];
+        N_tau       : int       = 10;
+
+        dx_dtheta_Trajectory    = torch.empty([d, N_Params, N + 1], dtype = torch.float32);
+        dx_dtau_Trajectory      = torch.empty([d,           N + 1], dtype = torch.float32);
+        dx_dx0_Trajectory       = torch.empty([d, d,        N + 1], dtype = torch.float32);
+
+        # Set up the ICs for (d/dtheta)x and (d/dtau)x.
+        dx_dtheta_Trajectory[:, :, 0]   = 0;
+        dx_dtau_Trajectory  [:,    0]   = 0;
+        dx_dx0_Trajectory   [:, :, 0]   = torch.eye(d);
+
+        # Set up buffers to track variables we need to solve the DDEs for (d/dtheta)x, (d/dtau)x.
+        F_Trajectory    = torch.empty([d,           N + 1], dtype = torch.float32);
+        dF_dx           = torch.zeros([d, d,        N + 1], dtype = torch.float32);
+        dF_dy           = torch.zeros([d, d,        N + 1], dtype = torch.float32);
+        dF_dtheta       = torch.zeros([d, N_Params, N + 1], dtype = torch.float32);
+        dl_dx           = torch.zeros([d,           N + 1], dtype = torch.float32);
+
+        for j in range(0, N + 1):
+            # First, we need to compute the derivatives of F with respect to x(t) and x(t - tau).
+            torch.set_grad_enabled(True);
+
+            # First, fetch x(t), x(t - tau) (a.k.a. y(t)), and t from the jth time step.
+            x_j         : torch.Tensor = x_Pred_Trajectory[:, j].requires_grad_(True);
+            x_true_j    : torch.Tensor = x_True_Trajectory[:, j];
+            y_j         : torch.Tensor = x_Pred_Trajectory[:, j - N_tau].requires_grad(True)   if j >= N_tau   else x_0;
+            t_j         : torch.Tensor = t_Trajectory[j];
+
+            # Now, evaluate F at this time step.
+            F_j         : torch.Tensor = F(x_j, y_j, t_j);
+
+            # Next, compute the gradient of F_i with respect to these variables at the jth time step.
+            for i in range(d):
+                dFi_dx_j, dFi_dy_j, dFi_dtheta_j = torch.autograd.grad(outputs = F_j[i], inputs = (x_j, y_j, F_Params));
+                
+                dF_dx[i, :, j]     = dFi_dx_j;
+                dF_dy[i, :, j]     = dFi_dy_j; 
+                dF_dtheta[i, :, j] = dFi_dtheta_j;
+
+            # Store value of F.
+            F_Trajectory[:, j] = F_j;
+
+            # Finally, compute the gradient of l with respect to x(t)
+            l_j             : torch.Tensor  = l(x_j, x_true_j);
+            dx_dtau_Trajectory[:, :, j + 1] = torch.autograd.grad(outputs = l_j, inputs = x_j)[0];
+
+            torch.set_grad_enabled(False);
+
+            # Compute the derivatives of x with respect to theta, tau, and x_0 at the next time step.
+            # Note that we skip this part if i = N.
+            if(i == N): 
+                continue;
+            
+            # (d/dtheta)x(t)
+            dx_dtheta_Trajectory[:, :, j + 1]   =  (dx_dtheta_Trajectory[:, :, j] +
+                                                    dt*(torch.matmul(dF_dx[:, :, j], dx_dtheta_Trajectory[:, :, j]) + 
+                                                        dF_dtheta[:, :, j]));
+            if(i >= N_tau):
+                dx_dtheta_Trajectory[:, :, j + 1] += dt*(torch.matmul(dF_dy[:, :, j], dx_dtheta_Trajectory[:, :, j - N_tau]));
+            
+            # (d/dtau)x(t)
+            dx_dtau_Trajectory[:, j + 1] = dx_dtau_Trajectory[:, j] + dt*torch.mv(dF_dx[:, :, j], dx_dtau_Trajectory[:, j]);
+            if(i >= N_tau):
+                dx_dtau_Trajectory[:, :, j + 1] += dt*(torch.mv(dF_dy[:, :, j], dx_dtau_Trajectory[:, :, j - N_tau]) -
+                                                       torch.mv(dF_dy[:, :, j], F_Trajectory[:, j - N_tau]));
+
+            # (d/dx_0)x(t)
+            dx_dx0_Trajectory[:, j + 1]         = dx_dx0_Trajectory[:, :, j] + dt*torch.matmul(dF_dx[:, :, j], dx_dx0_Trajectory[:, :, j]);
+            if(i >= N_tau):
+                dx_dx0_Trajectory[:, :, j + 1]  += dt*torch.matmul(dF_dy[:, :, j], dx_dx0_Trajectory[:, :, j - N_tau]);
+
+
+
+        ###########################################################################################
+        # compute (d/dtheta)Loss, (d/dtau)Loss, and (d/dx_0)Loss
+
+        # Above, we found that
+        #       (d/dtheta) Loss(x) = \int_{0}^{T} (dl/dx(t))(d/dtheta)x(t) dt 
+        #       (d/dtau)   Loss(x) = \int_{0}^{T} (dl/dx(t))(d/dtau)x(t)   dt 
+        #       (d/dx_0)   Loss(x) = \int_{0}^{T} (dl/dx(t))(d/dx_0)x(t)   dt 
+        # Now that we know dl/dx, (d/dtheta)x, and (d/dtau)x at each time step, we can compute 
+        # these integrals using the trapezoidal rule. 
+
+        dLoss_dtheta    = torch.zeros(N_Params, dtype = torch.float32);
+        dLoss_dtau      = torch.zeros(1,        dtype = torch.float32);
+        dLoss_dx0       = torch.zeros(d,        dtype = torch.float32);
+
+        for i in range(0, N):
+            dLoss_dtheta += 0.5*dt*(torch.matmul(dl_dx[:, j    ].reshape(-1, 1), dx_dtheta_Trajectory[:, :, j    ]) + 
+                                    torch.matmul(dl_dx[:, j + 1].reshape(-1, 1), dx_dtheta_Trajectory[:, :, j + 1]));
+
+            dLoss_dtau   += 0.5*dt*(torch.dot(dl_dx[:, j    ], dx_dtau_Trajectory[:, j    ]) + 
+                                    torch.dot(dl_dx[:, j + 1], dx_dtau_Trajectory[:, j + 1]));
+        
+            dLoss_dx0    += 0.5*dt*(torch.matmul(dl_dx[:, j    ].reshape(-1, 1), dx_dx0_Trajectory[:, :, j    ]) + 
+                                    torch.matmul(dl_dx[:, j + 1].reshape(-1, 1), dx_dx0_Trajectory[:, :, j + 1]));
+
+
+        # All done... The kth return argument represents the gradient for the kth argument to forward.
+        return None, dLoss_dx0, dLoss_dtau, None, None, None, dLoss_dtheta;

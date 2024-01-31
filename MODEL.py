@@ -1,5 +1,9 @@
 import torch; 
 
+# Logger setup 
+import logging;
+LOGGER : logging.Logger = logging.getLogger(__name__);
+
 
 
 class Logistic_Model(torch.nn.Module):
@@ -11,7 +15,7 @@ class Logistic_Model(torch.nn.Module):
         x(t)  = x_0                                 t \in [-\tau, 0]
     A Exponential_Model object is supposed to act like the function F in the expression above 
     when F has the following general form 
-        F(x(t), x(t - \tau), t, \theta) = \theta_0 x(t)(1 - \theta_1 x(t - \tau)).
+        F(x(t), x(t - Model\tau), t, \theta) = \theta_0 x(t)(1 - \theta_1 x(t - \tau)).
     In other words, objects of this class are callable objects which accept three arguments: 
     x, y, and t. If x = x(t), y = x(t - \tau) then return F evaluated at those inputs. 
     """
