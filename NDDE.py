@@ -297,6 +297,33 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             else: 
                 p[:, j - 1] = p[:, j] - dt*(-p_t_dFdx_t[:, j] + dldx_t[:, j] - p_t_dFdy_t[:, j + N_tau]);
 
+        # Debug plots!
+        if(Debug_Plots == True):
+            # Plot the final trajectory, gradients.
+            plt.figure(0);
+            plt.plot(t_Values, p[0, :].detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel(r"$p(t)$");
+            plt.title("Adjoint");
+
+            plt.figure(1);
+            plt.plot(t_Values, x_Pred_Values[0, :].detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel("predicted position");
+            plt.title("Predicted trajectory");
+            plt.yscale('log');
+
+            plt.figure(2);
+            plt.plot(t_Values, p_t_dFdx_t[0, :].reshape(-1).detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel(r"$(dF/dx)(t)$");
+            plt.title("Gradient of F with respect to $x(t)$ along the predicted trajectory");
+
+            plt.figure(3);
+            plt.plot(t_Values, p_t_dFdy_t[0, :].reshape(-1).detach().numpy());
+            plt.xlabel(r"$t$");
+            plt.ylabel(r"$(dF/dy)(t)$");
+            plt.title("Gradient of F with respect to $y(t) = x(t - tau)$ along the predicted trajectory");
 
 
         ###########################################################################################

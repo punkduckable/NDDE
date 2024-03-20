@@ -123,6 +123,8 @@ def Train(  DDE_Module      : torch.nn.Module,
                     " Loss = %7.5f"                 % Loss.item(), 
                     " | tau = %7.5f"                % tau.item(), 
                     " | grad tau = %9.5f"           % tau.grad.item(),
+                    " | x0 = %9.5f"                 % x_0.item(),
+                    " | grad x0 = %9.5f"            % x_0.grad.item(),
                     " | Params = %7.5f, %7.5f"      % (DDE_Module.Model.Params[0], DDE_Module.Model.Params[1]), 
                     " | grad Params = %9.5f, %9.5f" % (DDE_Module.Model.Params.grad[0], DDE_Module.Model.Params.grad[1]));
             #plt.plot(Predicted_Trajectory[0].detach().numpy());
