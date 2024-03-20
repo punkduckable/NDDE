@@ -1,35 +1,19 @@
-import torch;
+from    typing  import Callable;
+
+import  torch;
+
 
 # Set up the logger.
 import logging;
 LOGGER : logging.Logger = logging.getLogger(__name__);
 
-def l(x : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
-    """
-    This function computes the L2 norm squared between x and y. Thus, if x, y \in R^d, then we 
-    return 
-            (x_0 - y_0)^2 + ... + (x_{d - 1} - y_{d - 1})^2
-
-    -----------------------------------------------------------------------------------------------
-    Arguments:
-
-    x, y: 1D tensors. They must have the same number of components.
-    """
-
-    # Run checks.
-    assert(len(x.shape) == 1);
-    assert(x.shape      == y.shape);
-
-    # Compute the L2 norm squared between x and y, return it.
-    return torch.sum(torch.square(x - y));
-
-
 
 
 def Integral_Loss(
             Predict_Trajectory      : torch.Tensor, 
-            Target_Trajectory       : torch.Tensor, 
-            t_Trajectory            : torch.Tensor) -> torch.Tensor:
+            Target_Trajectory       : torch.Tensor,
+            t_Trajectory            : torch.Tensor,
+            l                       : Callable) -> torch.Tensor:
     """
     This function approximates the loss 
         L(x_p(t), x_t(t)) = \int_{0}^{T} l(x_p(t), x_t(t)) dt
@@ -51,6 +35,8 @@ def Integral_Loss(
     t_Trajectory: a 1D tensor whose jth element holds the time value associated with the jth column 
     of the Predicted or Target trajectory. 
 
+    l: This is the function l in the loss function above.
+    
     This function approximates the loss 
         L(x_p(t), x_t(t)) = \int_{0}^{T} l(x_p(t), x_t(t)) dt
     Here, x_p represents the predicted trajectory while x_t is the true or target one. 
@@ -77,10 +63,10 @@ def Integral_Loss(
     for j in range(N):
         Integrand[j] = l(Predict_Trajectory[:, j], Target_Trajectory[:, j]);
 
-    # Now compute the loss using the trapezodial rule.
-    Loss        : torch.Tensor  = torch.zeros(1, dtype = torch.float32);
+    # Now compute the loss using the trapezoidal rule.
+    Loss        : torch.Tensor  = torch.zeros(1, dtype = torch.float32, requires_grad = True);
     for j in range(N - 1):
-        Loss += 0.5*(t_Trajectory[j + 1] - t_Trajectory[j])*(Integrand[j] + Integrand[j + 1]);
+        Loss = Loss + 0.5*(t_Trajectory[j + 1] - t_Trajectory[j])*(Integrand[j] + Integrand[j + 1]);
     return Loss;
 
 

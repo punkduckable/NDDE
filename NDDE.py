@@ -3,7 +3,7 @@ from    typing  import  Tuple, Callable;
 from    scipy   import  interpolate;
 import  matplotlib.pyplot as plt;
 
-from    Solver  import  RK2         as DDE_Solver;
+from    Solver  import  RK2             as DDE_Solver;
 
 # Logger setup 
 import logging;
@@ -41,7 +41,7 @@ class NDDE_1D(torch.nn.Module):
         self.Model = Model;
         
 
-    def forward(self, x_0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, l : Callable, x_True_Interp : Callable):
+    def forward(self, x_0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, l : Callable, G : Callable, x_Targ_Interp : Callable):
         """
         Arguments: 
 
@@ -58,7 +58,7 @@ class NDDE_1D(torch.nn.Module):
         Thus, it should be a Callable object which takes two arguments, both in R^d. We assume that
         this function can be differentiated (using autograd) with respect to its first argument.
 
-        x_True_Interp: An interpolation object for the true trajectory. We need this to be able 
+        x_Targ_Interp: An interpolation object for the target trajectory. We need this to be able 
         to evaluate dl/dx when computing the adjoint in the backwards pass. 
         """
 
@@ -72,8 +72,8 @@ class NDDE_1D(torch.nn.Module):
         Model_Params    : torch.Tensor      = Model.Params;
 
         # Evaluate the neural DDE using the Model
-        Trajectory = DDE_adjoint_Backward_SSE.apply(Model, x_0, tau, T, Model_Params);
-        #Trajectory = DDE_adjoint_l.apply(Model, x_0, tau, T, l, x_True_Interp, Model_Params);
+        #Trajectory = DDE_adjoint_Backward_SSE.apply(Model, x_0, tau, T, Model_Params);
+        Trajectory = DDE_adjoint_Backward.apply(Model, x_0, tau, T, l, G, x_Targ_Interp, Model_Params);
         return Trajectory;
 
 
@@ -142,8 +142,9 @@ class DDE_adjoint_Backward_SSE(torch.autograd.Function):
         # Save tensor arguments for backwards
         ctx.save_for_backward(x_0, tau, T, x_Trajectory, t_Trajectory, F_Params);
         
-        # All done!
-        return x_Trajectory.clone();
+        # All done! Note that we need to return a detached version of the trajectory to disable 
+        # PyTorch's default backward algorithm.
+        return x_Trajectory.detach();
         
     
 
@@ -352,11 +353,11 @@ class DDE_adjoint_Backward_SSE(torch.autograd.Function):
 
 
 
-class DDE_adjoint_Backward_l(torch.autograd.Function):
+class DDE_adjoint_Backward(torch.autograd.Function):
     """
     This class implements the forward and backward passes for updating the parameters and tau. This
     particular class is designed for a loss function of the form
-        \int_{0}^{T} l(x_Predict, x_True) dx 
+        \int_{0}^{T} l(x_Predict, x_Target) dx 
 
     Forward Pass - During the forward pass, we use a DDE solver to map the initial state, x_0, 
     along a predicted trajectory. In particular, we solve the following DDE
@@ -375,7 +376,8 @@ class DDE_adjoint_Backward_l(torch.autograd.Function):
                 tau             : torch.Tensor, 
                 T               : torch.Tensor, 
                 l               : Callable, 
-                x_True_Interp   : Callable, 
+                G               : Callable,
+                x_Targ_Interp   : Callable, 
                 F_Params        : torch.Tensor) -> torch.Tensor:
         """ 
         -------------------------------------------------------------------------------------------
@@ -393,11 +395,16 @@ class DDE_adjoint_Backward_l(torch.autograd.Function):
         T: A single element tensor whose lone element specifies the final simulation time.
 
         l: The function l in the loss function
-            Loss(x_Pred) = \int_{0}^{T} l(x_Predict(t), x_Target(t)) dt
+            Loss(x_Pred) = G(x(T)) + \int_{0}^{T} l(x_Predict(t), x_Target(t)) dt
         Thus, it should be a Callable object which takes two arguments, both in R^d. We assume that
         this function can be differentiated (using autograd) with respect to its first argument.
 
-        x_True_Interp: An interpolation object for the true trajectory. We need this to be able 
+        G: The function G in the loss function
+            Loss(x_Pred) = G(x(T)) + \int_{0}^{T} l(x_Predict(t), x_Target(t)) dt
+        Thus, it should be a Callable object which takes two arguments, both in R^d. We assume that
+        this function can be differentiated (using autograd) with respect to its first argument.
+        
+        x_Target_Interp: An interpolation object for the target trajectory. We need this to be able 
         to evaluate dl/dx when computing the adjoint in the backwards pass. 
 
         F_Params: A tensor housing the parameters of the model, F.
@@ -423,14 +430,15 @@ class DDE_adjoint_Backward_l(torch.autograd.Function):
             
         # Save non-tensor arguments for backwards.
         ctx.F               = F; 
-        ctx.x_True_Interp   = x_True_Interp;
+        ctx.x_Targ_Interp   = x_Targ_Interp;
         ctx.l               = l;
+        ctx.G               = G;
 
         # Save tensor arguments for backwards
         ctx.save_for_backward(x_0, tau, T, x_Trajectory, t_Trajectory, F_Params);
         
         # All done!
-        return x_Trajectory.clone();
+        return x_Trajectory.detach();
         
     
 
@@ -438,8 +446,9 @@ class DDE_adjoint_Backward_l(torch.autograd.Function):
     def backward(ctx, grad_y : torch.Tensor) -> Tuple[torch.Tensor]:
         # recover information from the forward pass
         F               : torch.nn.Module                   = ctx.F;
-        x_True_Interp   : Callable                          = ctx.x_True_Interp;
+        x_Targ_Interp   : Callable                          = ctx.x_Targ_Interp;
         l               : Callable                          = ctx.l;
+        G               : Callable                          = ctx.G;
         x_0, tau, T, x_Trajectory, t_Trajectory, F_Params   = ctx.saved_tensors;
         d               : int                               = x_0.numel();
 
@@ -449,9 +458,9 @@ class DDE_adjoint_Backward_l(torch.autograd.Function):
         
         # Find the step size for the backwards pass. Also find the number of time step and the 
         # number of time steps in an interval of length tau. 
-        dt              : float             = 0.1*tau.item();
-        N               : int               = int(torch.floor(T/dt).item());
         N_tau           : int               = 10;
+        dt              : float             = tau.item()/N_tau;
+        N               : int               = int(torch.floor(T/dt).item());
 
         # Now, let's set up an interpolation of the forward trajectory. We will evaluate this 
         # interpolation at each time when we want to compute the adjoint. This allows us to use
@@ -461,16 +470,30 @@ class DDE_adjoint_Backward_l(torch.autograd.Function):
         # Find time values for backwards pass. 
         t_Values        : torch.Tensor      = torch.linspace(start = 0, end = T, steps = N + 1);
 
-        # evaluate the interpolation of the predicted, true solution at these values. 
-        x_True_Values   : torch.Tensor      = torch.from_numpy(x_True_Interp(t_Values.detach().numpy()));
+        # evaluate the interpolation of the predicted, target solution at these values. 
+        x_Targ_Values   : torch.Tensor      = torch.from_numpy(x_Targ_Interp(t_Values.detach().numpy()));
         x_Pred_Values   : torch.Tensor      = torch.from_numpy(x_Pred_Interp(t_Values.detach().numpy()));
 
         # Set up a tensor to hold the adjoint. p[:, j] holds the value of the adjoint at the
         # jth time value.   
-        # Notice that starting with a tensor of zeros actually initializes the adjoint at the final
-        # time. From the paper, the adjoint at time T should be set to dg/dx(T). However, since we 
-        # assume that there is no g, the IC is just 0. 
         p               : torch.Tensor      = torch.zeros([d, N + 1],    dtype = torch.float32);
+
+        # Now, we need to set p's initial conditions. From the paper, the adjoint at time T should 
+        # be set to -dg/dx(T). Let's compute that! Note that it's possible that our implementation 
+        # of G doesn't directly depend on x(T) (it may just return a zero vector). In this case, 
+        # \nabla_{x(T)} G(x(T)) will return None. If we get None, we just set the gradient to zero.
+        torch.set_grad_enabled(True);
+
+        xT_Predict      : torch.Tensor  = x_Pred_Values[-1].requires_grad_(True);
+        xT_Target       : torch.Tensor  = x_Targ_Values[-1];
+        G_xT            : torch.Tensor  = G(xT_Predict, xT_Target);
+
+        grad_G_xT   : torch.Tensor  = torch.autograd.grad(outputs = G_xT, inputs = xT_Predict, allow_unused = True)[0];
+        if(grad_G_xT is None):
+            grad_G_xT = torch.zeros_like(xT_Predict);
+        p[-1] = grad_G_xT;
+        
+        torch.set_grad_enabled(False);
 
         # Set up vectors to track F, dF_dx, dF_dy, dF_dtheta, and dl_dx at each time. This is 
         # helpful for debugging purposes (and storing this information is necessary to compute 
@@ -508,8 +531,8 @@ class DDE_adjoint_Backward_l(torch.autograd.Function):
             dF_dtheta[i, :, -1]                 = dFi_dtheta_N;
 
         # Compute dl_dx at the final time step.
-        x_True_N    : torch.Tensor  = x_True_Values[:, N];
-        l_x_N       : torch.Tensor  = l(x_N, x_True_N);
+        x_Targ_N    : torch.Tensor  = x_Targ_Values[:, N];
+        l_x_N       : torch.Tensor  = l(x_N, x_Targ_N);
         dl_dx[:, -1]                = torch.autograd.grad(outputs = l_x_N, inputs = x_N)[0];
 
         # We are all done tracking gradients.
@@ -538,11 +561,11 @@ class DDE_adjoint_Backward_l(torch.autograd.Function):
                 dF_dtheta[i, :, j - 1] = dFi_dtheta_jm1;
 
             # Compute dl_dx at the j-1'th time step.
-            x_True_jm1  : torch.Tensor  = x_True_Values[:, j - 1];
-            l_x_jm1     : torch.Tensor  = l(x_jm1, x_True_jm1);
+            x_Targ_jm1  : torch.Tensor  = x_Targ_Values[:, j - 1];
+            l_x_jm1     : torch.Tensor  = l(x_jm1, x_Targ_jm1);
             dl_dx[:, j - 1]             = torch.autograd.grad(outputs = l_x_jm1, inputs = x_jm1)[0];
 
-            #print("%8.5f, %8.5f, " % (dl_dx[:, j].item(), (2*(x_Pred_Values[:, j] - x_True_Values[:, j])).item()), end = ' ');
+            #print("%8.5f, %8.5f, " % (dl_dx[:, j].item(), (2*(x_Pred_Values[:, j] - x_Targ_Values[:, j])).item()), end = ' ');
 
             # We are all done tracking gradients.
             torch.set_grad_enabled(False);
@@ -628,7 +651,7 @@ class DDE_adjoint_Backward_l(torch.autograd.Function):
                                     torch.dot(p[:, j + 1], torch.mv(dF_dy[:, :, j + 1], F_Values[:, j - N_tau + 1])));
 
         # All done... The kth return argument represents the gradient for the kth argument to forward.
-        return None, p[0], dL_dtau, None, None, None, dL_dtheta;
+        return None, p[0], dL_dtau, None, None, None, None, dL_dtheta;
 
 
 

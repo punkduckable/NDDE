@@ -4,6 +4,7 @@ from    typing      import Dict, Callable, Tuple;
 import  torch;
 import  numpy;
 from    scipy       import  interpolate;
+from    Loss        import  SSE_Loss, Integral_Loss;
 
 # Minimum allowed value of tau
 Tau_Threshold   : float = 0.001;
@@ -21,7 +22,7 @@ def Train(  DDE_Module      : torch.nn.Module,
             x_Target        : torch.Tensor, 
             t_Target        : torch.Tensor, 
             l               : Callable,
-            Loss_Fn         : Callable,
+            G               : Callable,
             Loss_Threshold  : float, 
             Optimizer       : torch.optim.Optimizer,
             Scheduler                   = None) -> Tuple[Dict[str, torch.Tensor], numpy.ndarray, numpy.ndarray]:
@@ -66,18 +67,21 @@ def Train(  DDE_Module      : torch.nn.Module,
         # Compute the loss.
         
         # find the predicted trajectories with current tau, parameter values.
-        Predicted_Trajectory : torch.Tensor = DDE_Module(x_0, tau, T, l, x_Target_Interpolated);
+        Predicted_Trajectory    : torch.Tensor = DDE_Module(x_0, tau, T, l, G, x_Target_Interpolated);
+        xT_Predict              : torch.Tensor = Predicted_Trajectory[-1];
 
         # find the time steps for the output trajectory
         N_Steps : int = Predicted_Trajectory.shape[1];
 
         # interpolate the target solution at the new time steps. Note that we need to do 
         # this every epoch because tau changes each epoch, and tau controls the step size.
-        t_Predict_np         : numpy.ndarray    = numpy.linspace(start = 0, stop = T.item(), num = N_Steps);
-        Target_Trajectory    : torch.Tensor     = torch.from_numpy(x_Target_Interpolated(t_Predict_np));
+        t_Predict_np            : numpy.ndarray = numpy.linspace(start = 0, stop = T.item(), num = N_Steps);
+        Target_Trajectory       : torch.Tensor  = torch.from_numpy(x_Target_Interpolated(t_Predict_np));
+
+        xT_Target               : torch.Tensor  = Target_Trajectory[-1];
 
         # Compute the loss!
-        Loss : torch.Tensor = Loss_Fn(Predicted_Trajectory, Target_Trajectory, torch.from_numpy(t_Predict_np));
+        Loss : torch.Tensor =  G(xT_Predict, xT_Target) + Integral_Loss(Predicted_Trajectory, Target_Trajectory, torch.from_numpy(t_Predict_np), l);
         LOGGER.debug("Loss = %f" % Loss.item());
 
 
