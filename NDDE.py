@@ -14,13 +14,13 @@ Debug_Plots : bool = False;
 
 
 
-class NDDE_1D(torch.nn.Module):
+class NDDE(torch.nn.Module):
     """
-    Here, we define the NDDE_1D class. This class acts as a wrapper around a MODEL object. Recall 
+    Here, we define the NDDE class. This class acts as a wrapper around a MODEL object. Recall 
     that a `MODEL` object acts like the function F in the following DDE:
             x'(t) = F(x(t), x(t - tau), t)          if t \in [0, T] 
-            x(t)  = x_0                             if t \in [-tau, 0]
-    The NDDE_1D class accepts a `MODEL`. Its forward method solves the implied DDE on the interval
+            x(t)  = x0                              if t \in [-tau, 0]
+    The NDDE class accepts a `MODEL`. Its forward method solves the implied DDE on the interval
     [0, T] and then returns the result.
     """
     
@@ -30,23 +30,23 @@ class NDDE_1D(torch.nn.Module):
 
         Model: This is a torch Module object which acts as the function "F" in a DDE: 
             x'(t) = F(x(t), x(t - \tau), t)     for t \in [0, T]
-            x(t)  = x_0                         for t \in [-\tau, 0]
+            x(t)  = x0                          for t \in [-\tau, 0]
         Thus, the Model should accept three arguments: x(t), x(t - \tau), and t. 
         """
 
         # Call the super class initializer.
-        super(NDDE_1D, self).__init__();
+        super(NDDE, self).__init__();
 
         # Set the model.
         self.Model = Model;
         
 
-    def forward(self, x_0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, l : Callable, G : Callable, x_Targ_Interp : Callable):
+    def forward(self, x0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, l : Callable, G : Callable, x_Targ_Interp : Callable):
         """
         Arguments: 
 
-        x_0: the initial position. We assume that x(t) = x_0 for t \in [-\tau, 0]. Thus, x_0 
-        defines the initial state of the DDE. x_0 should be a 1D tensor.
+        x0: the initial position. We assume that x(t) = x0 for t \in [-\tau, 0]. Thus, x0 
+        defines the initial state of the DDE. x0 should be a 1D tensor.
 
         tau: The time delay in the DDE. This should be a single element tensor.
 
@@ -63,7 +63,7 @@ class NDDE_1D(torch.nn.Module):
         """
 
         # Run checks.
-        assert(len(x_0.shape)   == 1);
+        assert(len(x0.shape)    == 1);
         assert(tau.numel()      == 1);
         assert(T.numel()        == 1);
 
@@ -72,8 +72,8 @@ class NDDE_1D(torch.nn.Module):
         Model_Params    : torch.Tensor      = Model.Params;
 
         # Evaluate the neural DDE using the Model
-        #Trajectory = DDE_adjoint_Backward_SSE.apply(Model, x_0, tau, T, Model_Params);
-        Trajectory = DDE_adjoint_Backward.apply(Model, x_0, tau, T, l, G, x_Targ_Interp, Model_Params);
+        #Trajectory = DDE_adjoint_Backward_SSE.apply(Model, x0, tau, T, Model_Params);
+        Trajectory = DDE_adjoint_Backward.apply(Model, x0, tau, T, l, G, x_Targ_Interp, Model_Params);
         return Trajectory;
 
 
@@ -84,10 +84,10 @@ class DDE_adjoint_Backward(torch.autograd.Function):
     particular class is designed for a loss function of the form
         \int_{0}^{T} l(x_Predict, x_Target) dx 
 
-    Forward Pass - During the forward pass, we use a DDE solver to map the initial state, x_0, 
+    Forward Pass - During the forward pass, we use a DDE solver to map the initial state, x0, 
     along a predicted trajectory. In particular, we solve the following DDE
             x'(t)   = F(x(t), x(t - tau), t, theta) t \in [0, T]
-            x(t)    = x_0                           t \in [-tau, 0]
+            x(t)    = x0                            t \in [-tau, 0]
     
     Backward pass - During the backward pass, we use the adjoint sensitivity method to find the 
     gradient of the loss with respect to tau and the network parameters. In particular, we solve
@@ -97,7 +97,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, 
                 F               : torch.nn.Module, 
-                x_0             : torch.Tensor, 
+                x0              : torch.Tensor, 
                 tau             : torch.Tensor, 
                 T               : torch.Tensor, 
                 l               : Callable, 
@@ -111,7 +111,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         F: A torch Module object which represents the right-hand side of the DDE,
                 x'(t) = F(x(t), x(t - tau), t)      t \in [0, T]
         
-        x_0: A d-element 1D tensor whose kth value specifies the kth component of the starting 
+        x0: A d-element 1D tensor whose kth value specifies the kth component of the starting 
         position.
 
         tau: A single element tensor whose lone element specifies our best guess for the time 
@@ -134,7 +134,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
 
         F_Params: A tensor housing the parameters of the model, F.
 
-        Note: we compute gradients with respect to x_0, tau, and F_Params.
+        Note: we compute gradients with respect to x0, tau, and F_Params.
 
         -------------------------------------------------------------------------------------------
         Returns: 
@@ -143,7 +143,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         """ 
 
         # Run checks. 
-        assert(len(x_0.shape)   == 1);
+        assert(len(x0.shape)    == 1);
         assert(tau.numel()      == 1);
         assert(T.numel()        == 1);
 
@@ -151,7 +151,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         ctx.mark_non_differentiable(T);
 
         # Compute the forward solution using the DDE solver. 
-        x_Trajectory, t_Trajectory = DDE_Solver(F, x_0, tau, T);
+        x_Trajectory, t_Trajectory = DDE_Solver(F, x0, tau, T);
             
         # Save non-tensor arguments for backwards.
         ctx.F               = F; 
@@ -160,7 +160,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         ctx.G               = G;
 
         # Save tensor arguments for backwards
-        ctx.save_for_backward(x_0, tau, T, x_Trajectory, t_Trajectory, F_Params);
+        ctx.save_for_backward(x0, tau, T, x_Trajectory, t_Trajectory, F_Params);
         
         # All done!
         return x_Trajectory.detach();
@@ -174,8 +174,8 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         x_Targ_Interp   : Callable                          = ctx.x_Targ_Interp;
         l               : Callable                          = ctx.l;
         G               : Callable                          = ctx.G;
-        x_0, tau, T, x_Trajectory, t_Trajectory, F_Params   = ctx.saved_tensors;
-        d               : int                               = x_0.numel();
+        x0, tau, T, x_Trajectory, t_Trajectory, F_Params    = ctx.saved_tensors;
+        d               : int                               = x0.numel();
 
         # extract the parameters from the list and find how many there are
         F_Params        : torch.Tensor      = F.Params;
@@ -253,7 +253,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             # First, let's compute p(t) dF_dx(t), p(t) dF_dy(t), and p(t) dF_dtheta(t).
             t_j         : torch.Tensor  = t_Values[j];
             x_j         : torch.Tensor  = x_Pred_Values[:, j].requires_grad_(True);
-            y_j         : torch.Tensor  = x_Pred_Values[:, j - N_tau].requires_grad_(True) if j - N_tau >= 0 else x_0;
+            y_j         : torch.Tensor  = x_Pred_Values[:, j - N_tau].requires_grad_(True) if j - N_tau >= 0 else x0;
             p_j         : torch.Tensor  = p[:, j];
 
             F_j         : torch.Tensor  = F(x_j, y_j, t_j);
@@ -332,7 +332,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         # Set up vectors to hold dL_dtau and dL_dtheta
         dL_dtheta       : torch.Tensor      = torch.zeros_like(F_Params);
         dL_dtau         : torch.Tensor      = torch.tensor([0.], dtype = torch.float32);
-        dL_dx0          : torch.Tensor      = torch.zeros_like(x_0);
+        dL_dx0          : torch.Tensor      = torch.zeros_like(x0);
 
         # Now compute dL_dtheta and dL_dtau. In this case, 
         #   dL_dtheta   =  -\int_{t = 0}^T dF_dtheta(x(t), x(t - tau), t)^T p(t) dt

@@ -15,7 +15,7 @@ LOGGER : logging.Logger = logging.getLogger(__name__);
 
 
 def Train(  DDE_Module      : torch.nn.Module, 
-            x_0             : torch.Tensor, 
+            x0              : torch.Tensor, 
             tau             : torch.Tensor, 
             T               : torch.Tensor,
             N_Epochs        : int, 
@@ -25,7 +25,8 @@ def Train(  DDE_Module      : torch.nn.Module,
             G               : Callable,
             Loss_Threshold  : float, 
             Optimizer       : torch.optim.Optimizer,
-            Scheduler                   = None) -> Tuple[Dict[str, torch.Tensor], numpy.ndarray, numpy.ndarray]:
+            Scheduler                   = None,
+            Writer                      = None) -> Tuple[numpy.ndarray, numpy.ndarray]:
     """
     This function implements the training loop for a simple NDDE object.
 
@@ -34,7 +35,7 @@ def Train(  DDE_Module      : torch.nn.Module,
 
     # ---------------------------------------------------------------------------------------------
     # Checks!
-    assert(len(x_0.shape)   == 1);
+    assert(len(x0.shape)    == 1);
     assert(tau.numel()      == 1);
     assert(T.numel()        == 1);
     assert(isinstance(N_Epochs, int));
@@ -67,7 +68,7 @@ def Train(  DDE_Module      : torch.nn.Module,
         # Compute the loss.
         
         # find the predicted trajectories with current tau, parameter values.
-        Predicted_Trajectory    : torch.Tensor = DDE_Module(x_0, tau, T, l, G, x_Target_Interpolated);
+        Predicted_Trajectory    : torch.Tensor = DDE_Module(x0, tau, T, l, G, x_Target_Interpolated);
         xT_Predict              : torch.Tensor = Predicted_Trajectory[-1];
 
         # find the time steps for the output trajectory
@@ -81,7 +82,9 @@ def Train(  DDE_Module      : torch.nn.Module,
         xT_Target               : torch.Tensor  = Target_Trajectory[-1];
 
         # Compute the loss!
-        Loss : torch.Tensor =  G(xT_Predict, xT_Target) + Integral_Loss(Predicted_Trajectory, Target_Trajectory, torch.from_numpy(t_Predict_np), l);
+        Loss_Terminal   : torch.Tensor  = G(xT_Predict, xT_Target);
+        Loss_Running    : torch.Tensor  = Integral_Loss(Predicted_Trajectory, Target_Trajectory, torch.from_numpy(t_Predict_np));
+        Loss            : torch.Tensor  = Loss_Terminal + Loss_Running;
         LOGGER.debug("Loss = %f" % Loss.item());
 
 
@@ -116,17 +119,22 @@ def Train(  DDE_Module      : torch.nn.Module,
 
 
         # -----------------------------------------------------------------------------------------
-        # Report loss and stuff.
+        # Log the Loss and stuff.
+    
+        if(Writer is not None):
+            Writer.add_scalar(r"$\| x_0 \|$",           torch.sqrt(torch.sum(torch.square(x0))).item(),         epoch);
+            Writer.add_scalar(r"$\| \nabla x_0 \|$",    torch.sqrt(torch.sum(torch.square(x0.grad))).item(),    epoch);
+            Writer.add_scalar(r"$\tau$",                tau.item(),                                             epoch);
+            Writer.add_scalar(r"$\nabla \tau$",         tau.grad.item(),                                        epoch);
+            Writer.add_scalar(r"Loss_{Total}",          Loss.item(),                                            epoch);
+            Writer.add_scalar(r"Loss_{Terminal}",       Loss_Terminal.item(),                                   epoch);
+            Writer.add_scalar(r"Loss_{Running}",        Loss_Running.item(),                                    epoch);
 
         if epoch % 10 == 0:
             print(  "%4d: "                         % epoch,
                     " Loss = %7.5f"                 % Loss.item(), 
                     " | tau = %7.5f"                % tau.item(), 
-                    " | grad tau = %9.5f"           % tau.grad.item(),
-                    " | x0 = %9.5f"                 % x_0.item(),
-                    " | grad x0 = %9.5f"            % x_0.grad.item(),
-                    " | Params = %7.5f, %7.5f"      % (DDE_Module.Model.Params[0], DDE_Module.Model.Params[1]), 
-                    " | grad Params = %9.5f, %9.5f" % (DDE_Module.Model.Params.grad[0], DDE_Module.Model.Params.grad[1]));
+                    " | grad tau = %9.5f"           % tau.grad.item());
             #plt.plot(Predicted_Trajectory[0].detach().numpy());
 
         # Save the data for printing later
@@ -134,8 +142,8 @@ def Train(  DDE_Module      : torch.nn.Module,
         History_Dict["tau"][epoch]          = tau.item();
 
     # Report final tau, parameter values.
-    LOGGER.info("Final values:");
-    LOGGER.info("tau = %7.5f, c_0 = %7.5f, c_1 = %7.5f" % (tau.item(), DDE_Module.Model.Params[0], DDE_Module.Model.Params[1]));
+    LOGGER.debug("Final values:");
+    LOGGER.debug("tau = %7.5f, c_0 = %7.5f, c_1 = %7.5f" % (tau.item(), DDE_Module.Model.Params[0], DDE_Module.Model.Params[1]));
 
     # All done... return!
-    return History_Dict, t_Predict_np, Predicted_Trajectory.detach();
+    return t_Predict_np, Predicted_Trajectory.detach();

@@ -8,12 +8,40 @@ import logging;
 LOGGER : logging.Logger = logging.getLogger(__name__);
 
 
+def l(x : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
+    """
+    This function computes the L2 norm squared between x and y. Thus, if x, y \in R^d, then we 
+    return 
+            (x_0 - y_0)^2 + ... + (x_{d - 1} - y_{d - 1})^2
+
+    -----------------------------------------------------------------------------------------------
+    Arguments:
+
+    x, y: 1D tensors. They must have the same number of components.
+    """
+
+    # Run checks.
+    assert(len(x.shape) == 1);
+    assert(x.shape      == y.shape);
+
+    # Compute the L2 norm squared between x and y, return it.
+    return torch.sum(torch.square(x - y));
+
+
+
+def G(xT_Predict    : torch.Tensor, xT_Target) -> torch.Tensor:
+    """ 
+    Implements the "G" portion of the loss function for the NDDE algorithm.
+    """
+
+    return torch.sum(torch.square(xT_Predict - xT_Target));
+
+
 
 def Integral_Loss(
             Predict_Trajectory      : torch.Tensor, 
             Target_Trajectory       : torch.Tensor,
-            t_Trajectory            : torch.Tensor,
-            l                       : Callable) -> torch.Tensor:
+            t_Trajectory            : torch.Tensor) -> torch.Tensor:
     """
     This function approximates the loss 
         L(x_p(t), x_t(t)) = \int_{0}^{T} l(x_p(t), x_t(t)) dt
@@ -34,8 +62,6 @@ def Integral_Loss(
 
     t_Trajectory: a 1D tensor whose jth element holds the time value associated with the jth column 
     of the Predicted or Target trajectory. 
-
-    l: This is the function l in the loss function above.
     
     This function approximates the loss 
         L(x_p(t), x_t(t)) = \int_{0}^{T} l(x_p(t), x_t(t)) dt
