@@ -222,11 +222,11 @@ class DDE_adjoint_Backward(torch.autograd.Function):
 
         # Set up vectors to track (dF_dx(t))^T p(t), (dF_dy(t))^T p(t), (dF_dTheta(t))^T p(t), 
         # and (dF_dy(t + tau))F(t).                                                 # do we need to compute 1 time step ahead?
-        F_Values        = torch.zeros([d,           N + 1], dtype = torch.float32); # no
-        p_t_dFdx_t      = torch.zeros([d,           N + 1], dtype = torch.float32); # no
-        p_t_dFdy_t      = torch.zeros([d,           N + 1], dtype = torch.float32); # yes
-        p_t_dFdTheta_t  = torch.zeros([N_Params,    N + 1], dtype = torch.float32); # no
-        dldx_t          = torch.zeros([d,           N + 1], dtype = torch.float32); # yes
+        F_Values        = torch.empty([d,           N + 1], dtype = torch.float32); # no
+        p_t_dFdx_t      = torch.empty([d,           N + 1], dtype = torch.float32); # no
+        p_t_dFdy_t      = torch.empty([d,           N + 1], dtype = torch.float32); # no
+        p_t_dFdTheta_t  = torch.empty([N_Params,    N + 1], dtype = torch.float32); # no
+        dldx_t          = torch.empty([d,           N + 1], dtype = torch.float32); # yes
 
 
 
@@ -274,13 +274,13 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             torch.set_grad_enabled(False);
         
             # Find p at the previous time step. Recall that p satisfies the following DDE:
-            #       p'(t) = -dF_dx(t)^T p(t)  - dF_dy(t)^T p(t + tau) 1_{t + tau < T}(t) + d l(x(t))/d x(t)
+            #       p'(t) = -dF_dx(t)^T p(t)  - dF_dy(t + tau)^T p(t + tau) 1_{t + tau < T}(t) + d l(x(t))/d x(t)
             #       p(T)  = dG_dX(x(T))  
             # Let F(t, p(t), p(t + tau)) denote the right-hand side of this equation. We find a 
             # numerical solution to this DDE using the RK2 method. In this case, we compute
             #       p(t - dt) \approx p(t) - dt*0.5*(k1 + k2)
-            #       k1 = -dF_dx(t)^T p(t)  - dF_dy(t)^T p(t + tau) 1_{t + tau < T}(t) + d l(x(t))/d x(t)
-            #       k2 = -dF_dx(t - dt)^T [p(t) - dt*k1]  - dF_dy(t - dt)^T p(t - dt + tau) 1_{t - dt + tau < T}(t) + d l(x(t - dt))/d x(t - dt)
+            #       k1 = -dF_dx(t)^T p(t)  - dF_dy(t + tau)^T p(t + tau) 1_{t + tau < T}(t) + d l(x(t))/d x(t)
+            #       k2 = -dF_dx(t - dt)^T [p(t) - dt*k1]  - dF_dy(t + tau - dt)^T p(t - dt + tau) 1_{t - dt + tau < T}(t) + d l(x(t - dt))/d x(t - dt)
             """
             k1 : torch.Tensor   = -torch.mv(torch.transpose(dF_dx[:, :, j], 0, 1), p[:, j]) + dl_dx[:, j];
             if(j + N_tau < N):
@@ -297,7 +297,33 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             else: 
                 p[:, j - 1] = p[:, j] - dt*(-p_t_dFdx_t[:, j] + dldx_t[:, j] - p_t_dFdy_t[:, j + N_tau]);
 
+
+
+        ###########################################################################################
+        # Compute jacobian, vector products at t = 0.
+
+        # Enable gradient tracking! We need this to compute the gradients of F. 
+        torch.set_grad_enabled(True);
+
+        # First, let's compute p(t) dF_dx(t), p(t) dF_dy(t), and p(t) dF_dtheta(t).
+        t_0         : torch.Tensor  = t_Values[0];
+        x_0         : torch.Tensor  = x_Pred_Values[:, 0].requires_grad_(True);
+        y_0         : torch.Tensor  = x0;
+        p_0         : torch.Tensor  = p[:, 0];
+
+        F_0         : torch.Tensor  = F(x_0, y_0, t_0);
+        F_Values[:, 0]              = F_0;
+
+        p_t_dFdx_t[:, 0], p_t_dFdy_t[:, 0], p_t_dFdTheta_t[:, 0] = torch.autograd.grad(
+                                                                        outputs         = F_0, 
+                                                                        inputs          = (x_0, y_0, F_Params), 
+                                                                        grad_outputs    = p_0);
+
+
+
+        ###########################################################################################
         # Debug plots!
+        
         if(Debug_Plots == True):
             # Plot the final trajectory, gradients.
             plt.figure(0);
@@ -324,6 +350,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             plt.xlabel(r"$t$");
             plt.ylabel(r"$(dF/dy)(t)$");
             plt.title("Gradient of F with respect to $y(t) = x(t - tau)$ along the predicted trajectory");
+
 
 
         ###########################################################################################
