@@ -143,7 +143,7 @@ def Train(  DDE_Module      : torch.nn.Module,
 
     # Report final tau, parameter values.
     LOGGER.debug("Final values:");
-    LOGGER.debug("tau = %7.5f, c_0 = %7.5f, c_1 = %7.5f" % (tau.item(), DDE_Module.Model.Params[0], DDE_Module.Model.Params[1]));
+    #LOGGER.debug("tau = %7.5f, c_0 = %7.5f, c_1 = %7.5f" % (tau.item(), DDE_Module.Model.Params[0], DDE_Module.Model.Params[1]));
 
     # All done... return!
     return t_Predict_np, Predicted_Trajectory.detach();
