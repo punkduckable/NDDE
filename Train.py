@@ -15,7 +15,6 @@ LOGGER : logging.Logger = logging.getLogger(__name__);
 
 
 def Train(  DDE_Module      : torch.nn.Module, 
-            x0              : torch.Tensor, 
             tau             : torch.Tensor, 
             T               : torch.Tensor,
             N_Epochs        : int, 
@@ -35,7 +34,6 @@ def Train(  DDE_Module      : torch.nn.Module,
 
     # ---------------------------------------------------------------------------------------------
     # Checks!
-    assert(len(x0.shape)    == 1);
     assert(tau.numel()      == 1);
     assert(T.numel()        == 1);
     assert(isinstance(N_Epochs, int));
@@ -68,7 +66,7 @@ def Train(  DDE_Module      : torch.nn.Module,
         # Compute the loss.
         
         # find the predicted trajectories with current tau, parameter values.
-        Predicted_Trajectory    : torch.Tensor = DDE_Module(x0, tau, T, l, G, x_Target_Interpolated);
+        Predicted_Trajectory    : torch.Tensor = DDE_Module(tau, T, l, G, x_Target_Interpolated);
         xT_Predict              : torch.Tensor = Predicted_Trajectory[-1];
 
         # find the time steps for the output trajectory
@@ -122,8 +120,6 @@ def Train(  DDE_Module      : torch.nn.Module,
         # Log the Loss and stuff.
     
         if(Writer is not None):
-            Writer.add_scalar(r"$\| x_0 \|$",           torch.sqrt(torch.sum(torch.square(x0))).item(),         epoch);
-            Writer.add_scalar(r"$\| \nabla x_0 \|$",    torch.sqrt(torch.sum(torch.square(x0.grad))).item(),    epoch);
             Writer.add_scalar(r"$\tau$",                tau.item(),                                             epoch);
             Writer.add_scalar(r"$\nabla \tau$",         tau.grad.item(),                                        epoch);
             Writer.add_scalar(r"Loss_{Total}",          Loss.item(),                                            epoch);
@@ -138,12 +134,11 @@ def Train(  DDE_Module      : torch.nn.Module,
             #plt.plot(Predicted_Trajectory[0].detach().numpy());
 
         # Save the data for printing later
-        History_Dict["Loss"][epoch]         = Loss.item();
-        History_Dict["tau"][epoch]          = tau.item();
+        History_Dict["Loss"][epoch - 1]     = Loss.item();
+        History_Dict["tau"][epoch - 1]      = tau.item();
 
     # Report final tau, parameter values.
     LOGGER.debug("Final values:");
-    #LOGGER.debug("tau = %7.5f, c_0 = %7.5f, c_1 = %7.5f" % (tau.item(), DDE_Module.Model.Params[0], DDE_Module.Model.Params[1]));
 
     # All done... return!
     return t_Predict_np, Predicted_Trajectory.detach();
