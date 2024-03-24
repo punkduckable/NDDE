@@ -21,8 +21,8 @@ def Train(  DDE_Module      : torch.nn.Module,
             N_Epochs        : int, 
             x_Target        : torch.Tensor, 
             t_Target        : torch.Tensor, 
-            l               : Callable,
-            G               : Callable,
+            l               : torch.nn.Module,
+            G               : torch.nn.Module,
             Loss_Threshold  : float, 
             Optimizer       : torch.optim.Optimizer,
             Scheduler                   = None,
@@ -83,7 +83,7 @@ def Train(  DDE_Module      : torch.nn.Module,
 
         # Compute the loss!
         Loss_Terminal   : torch.Tensor  = G(xT_Predict, xT_Target);
-        Loss_Running    : torch.Tensor  = Integral_Loss(Predicted_Trajectory, Target_Trajectory, torch.from_numpy(t_Predict_np));
+        Loss_Running    : torch.Tensor  = Integral_Loss(Predicted_Trajectory, Target_Trajectory, torch.from_numpy(t_Predict_np), l);
         Loss            : torch.Tensor  = Loss_Terminal + Loss_Running;
         LOGGER.debug("Loss = %f" % Loss.item());
 

@@ -8,40 +8,64 @@ import logging;
 LOGGER : logging.Logger = logging.getLogger(__name__);
 
 
-def l(x : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
-    """
-    This function computes the L2 norm squared between x and y. Thus, if x, y \in R^d, then we 
-    return 
-            (x_0 - y_0)^2 + ... + (x_{d - 1} - y_{d - 1})^2
-
-    -----------------------------------------------------------------------------------------------
-    Arguments:
-
-    x, y: 1D tensors. They must have the same number of components.
-    """
-
-    # Run checks.
-    assert(len(x.shape) == 1);
-    assert(x.shape      == y.shape);
-
-    # Compute the L2 norm squared between x and y, return it.
-    return torch.sum(torch.square(x - y));
+class Running_Cost(torch.nn.Module):
+    def __init__(self) -> None:
+        # Call the super class initializer.
+        super(Running_Cost, self).__init__();
 
 
 
-def G(xT_Predict    : torch.Tensor, xT_Target) -> torch.Tensor:
-    """ 
-    Implements the "G" portion of the loss function for the NDDE algorithm.
-    """
+    def forward(self, x : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
+        """
+        This function computes the L2 norm squared between x and y. Thus, if x, y \in \mathbb{R}^d, 
+        then we return 
+                (x_0 - y_0)^2 + ... + (x_{d - 1} - y_{d - 1})^2
 
-    return torch.sum(torch.square(xT_Predict - xT_Target));
+                
+        -----------------------------------------------------------------------------------------------
+        Arguments:
+
+        x, y: 1D tensors. They must have the same number of components.
+        """
+
+        # Run checks.
+        assert(len(x.shape) == 1);
+        assert(x.shape      == y.shape);
+
+        # Compute the L2 norm squared between x and y, return it.
+        return torch.sum(torch.square(x - y));
+
+
+
+class Terminal_Cost(torch.nn.Module):
+    def __init__(self) -> None:
+        # Call the super class initializer.
+        super(Terminal_Cost, self).__init__();
+
+
+
+    def forward(self, x : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
+        """ 
+        Implements the terminal cost or "G" portion of the loss function for the NDDE algorithm. 
+        Specifically, if x and y are in \mathbb{R}^d, then we return
+            (x0 - y0)^2 + ... + (x_{d - 1} - y_{d - 1})^2
+
+        
+        -----------------------------------------------------------------------------------------------
+        Arguments:
+    
+        x, y: 1D tensors. They must have the same number of components.
+        """
+
+        return torch.sum(torch.square(x - y));
 
 
 
 def Integral_Loss(
             Predict_Trajectory      : torch.Tensor, 
             Target_Trajectory       : torch.Tensor,
-            t_Trajectory            : torch.Tensor) -> torch.Tensor:
+            t_Trajectory            : torch.Tensor,
+            l                       : Running_Cost) -> torch.Tensor:
     """
     This function approximates the loss 
         L(x_p(t), x_t(t)) = \int_{0}^{T} l(x_p(t), x_t(t)) dt
@@ -49,6 +73,7 @@ def Integral_Loss(
     l(x, y) is the function defined above. This could be an function like
         l(x, y) = ||x - y||^2 dt
 
+    
     -----------------------------------------------------------------------------------------------
     Arguments: 
 
@@ -63,9 +88,8 @@ def Integral_Loss(
     t_Trajectory: a 1D tensor whose jth element holds the time value associated with the jth column 
     of the Predicted or Target trajectory. 
     
-    This function approximates the loss 
-        L(x_p(t), x_t(t)) = \int_{0}^{T} l(x_p(t), x_t(t)) dt
-    Here, x_p represents the predicted trajectory while x_t is the true or target one. 
+    l: The running cost function in the loss function above.
+
     
     -----------------------------------------------------------------------------------------------
     Returns:

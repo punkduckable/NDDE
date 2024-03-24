@@ -24,39 +24,54 @@ class NDDE(torch.nn.Module):
     [0, T] and then returns the result.
     """
     
-    def __init__(self, Model : torch.nn.Module):
+    def __init__(self, F : torch.nn.Module):# X0 : torch.nn.Module) -> None:
         """
+        -------------------------------------------------------------------------------------------
         Arguments:
+        -------------------------------------------------------------------------------------------
 
-        Model: This is a torch Module object which acts as the function "F" in a DDE: 
+        F: This is a torch Module object which acts as the function "F" in a DDE: 
             x'(t) = F(x(t), x(t - \tau), t)     for t \in [0, T]
             x(t)  = x0                          for t \in [-\tau, 0]
-        Thus, the Model should accept three arguments: x(t), x(t - \tau), and t. 
+        Thus, the F should accept three arguments: x(t), x(t - \tau), and t. 
+
+        X0: This is a module which gives the initial condition in [-\tau, 0]. In particular, at
+        time t \in [-\tau, 0], we set the initial condition at time t to X0(t). X0 should be a
+        torch.nn.Module object which takes inputs in \mathbb{R} and outputs them in \mathbb{R}^d, 
+        where \mathbb{R}^d is the space in which the dynamics happens.
         """
 
         # Call the super class initializer.
         super(NDDE, self).__init__();
 
-        # Set the model.
-        self.Model = Model;
+        # Store the right hand side and the IC.
+        self.F      = F;
+        #self.X0     = X0;
         
 
-    def forward(self, x0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, l : Callable, G : Callable, x_Targ_Interp : Callable):
+
+    def forward(self, x0, tau : torch.Tensor, T : torch.Tensor, l : torch.nn.Module, G : torch.nn.Module, x_Targ_Interp : Callable):
         """
+        -------------------------------------------------------------------------------------------
         Arguments: 
-
-        x0: the initial position. We assume that x(t) = x0 for t \in [-\tau, 0]. Thus, x0 
-        defines the initial state of the DDE. x0 should be a 1D tensor.
-
+        -------------------------------------------------------------------------------------------
+        
         tau: The time delay in the DDE. This should be a single element tensor.
 
         T: The final time in our solution to the DDE (See above). This should be a single 
         element tensor.
     
         l: The function l in the loss function
-            Loss(x_Pred) = \int_{0}^{T} l(x_Predict(t), x_Target(t)) dt
-        Thus, it should be a Callable object which takes two arguments, both in R^d. We assume that
-        this function can be differentiated (using autograd) with respect to its first argument.
+            Loss(x_Pred) = G(x(T)) + \int_{0}^{T} l(x_Predict(t), x_Target(t)) dt
+        Thus, it should be a torch.nn.Module  object which takes two arguments, both in R^d. We 
+        assume that this function can be differentiated (using autograd) with respect to its first 
+        argument.
+
+        G: The function G in the loss function
+            Loss(x_Pred) = G(x(T)) + \int_{0}^{T} l(x_Predict(t), x_Target(t)) dt
+        Thus, it should be a torch.nn.Module object which takes two arguments, both in R^d. We 
+        assume that this function can be differentiated (using autograd) with respect to its first 
+        argument.
 
         x_Targ_Interp: An interpolation object for the target trajectory. We need this to be able 
         to evaluate dl/dx when computing the adjoint in the backwards pass. 
@@ -68,14 +83,14 @@ class NDDE(torch.nn.Module):
         assert(T.numel()        == 1);
 
         # Fetch the model and its parameters.
-        Model           : torch.nn.Module       = self.Model;
-        Model_Params    : List[torch.Tensor]    = [];
-        for Param in Model.parameters():
-            Model_Params.append(Param);
+        F           : torch.nn.Module       = self.F;
+        F_Params    : List[torch.Tensor]    = [];
+        for Param in F.parameters():
+            F_Params.append(Param);
 
-        # Evaluate the neural DDE using the Model
-        #Trajectory = DDE_adjoint_Backward_SSE.apply(Model, x0, tau, T, Model_Params);
-        Trajectory = DDE_adjoint_Backward.apply(Model, x0, tau, T, l, G, x_Targ_Interp, *Model_Params);
+        # Evaluate the neural DDE using the F
+        #Trajectory = DDE_adjoint_Backward_SSE.apply(F, x0, tau, T, Model_Params);
+        Trajectory = DDE_adjoint_Backward.apply(F, x0, tau, T, l, G, x_Targ_Interp, *F_Params);
         return Trajectory;
 
 
@@ -102,8 +117,8 @@ class DDE_adjoint_Backward(torch.autograd.Function):
                 x0              : torch.Tensor, 
                 tau             : torch.Tensor, 
                 T               : torch.Tensor, 
-                l               : Callable, 
-                G               : Callable,
+                l               : torch.nn.Module, 
+                G               : torch.nn.Module,
                 x_Targ_Interp   : Callable, 
                 *F_Params       : torch.Tensor) -> torch.Tensor:
         """ 
@@ -123,13 +138,15 @@ class DDE_adjoint_Backward(torch.autograd.Function):
 
         l: The function l in the loss function
             Loss(x_Pred) = G(x(T)) + \int_{0}^{T} l(x_Predict(t), x_Target(t)) dt
-        Thus, it should be a Callable object which takes two arguments, both in R^d. We assume that
-        this function can be differentiated (using autograd) with respect to its first argument.
+        Thus, it should be a torch.nn.Module  object which takes two arguments, both in R^d. We 
+        assume that this function can be differentiated (using autograd) with respect to its first 
+        argument.
 
         G: The function G in the loss function
             Loss(x_Pred) = G(x(T)) + \int_{0}^{T} l(x_Predict(t), x_Target(t)) dt
-        Thus, it should be a Callable object which takes two arguments, both in R^d. We assume that
-        this function can be differentiated (using autograd) with respect to its first argument.
+        Thus, it should be a torch.nn.Module object which takes two arguments, both in R^d. We 
+        assume that this function can be differentiated (using autograd) with respect to its first 
+        argument.
         
         x_Target_Interp: An interpolation object for the target trajectory. We need this to be able 
         to evaluate dl/dx when computing the adjoint in the backwards pass. 
@@ -177,8 +194,8 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         # recover information from the forward pass
         F               : torch.nn.Module                   = ctx.F;
         x_Targ_Interp   : Callable                          = ctx.x_Targ_Interp;
-        l               : Callable                          = ctx.l;
-        G               : Callable                          = ctx.G;
+        l               : torch.nn.Module                   = ctx.l;
+        G               : torch.nn.Module                   = ctx.G;
         x0, tau, T, x_Trajectory, t_Trajectory, *F_Params   = ctx.saved_tensors;
         d               : int                               = x0.numel();
 
