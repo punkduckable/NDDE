@@ -38,9 +38,20 @@ class Running_Cost(torch.nn.Module):
 
 
 class Terminal_Cost(torch.nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, Weight : float = 0.0) -> None:
+        """
+        This function computes a weighted L2 squared norm between x and y. Specifically, it 
+        computes Weight*||x(T) - y(T)||_2^2.
+
+        We usually use this for the terminal cost. The Weight allows us to weigh how much we care 
+        about the terminal cost.
+        """
+
         # Call the super class initializer.
         super(Terminal_Cost, self).__init__();
+
+        # Store the weight.
+        self.Weight = Weight;
 
 
 
@@ -48,7 +59,7 @@ class Terminal_Cost(torch.nn.Module):
         """ 
         Implements the terminal cost or "G" portion of the loss function for the NDDE algorithm. 
         Specifically, if x and y are in \mathbb{R}^d, then we return
-            (x0 - y0)^2 + ... + (x_{d - 1} - y_{d - 1})^2
+            Weight*[ (x0 - y0)^2 + ... + (x_{d - 1} - y_{d - 1})^2 ]
 
         
         -----------------------------------------------------------------------------------------------
@@ -57,7 +68,7 @@ class Terminal_Cost(torch.nn.Module):
         x, y: 1D tensors. They must have the same number of components.
         """
 
-        return 0.*torch.sum(torch.square(x - y));
+        return self.Weight*torch.sum(torch.square(x - y));
 
 
 
