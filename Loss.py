@@ -57,7 +57,7 @@ class Terminal_Cost(torch.nn.Module):
         x, y: 1D tensors. They must have the same number of components.
         """
 
-        return torch.sum(torch.square(x - y));
+        return 0.*torch.sum(torch.square(x - y));
 
 
 

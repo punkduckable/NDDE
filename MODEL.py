@@ -121,8 +121,8 @@ class Exponential(torch.nn.Module):
         assert(isinstance(theta_1, float));
 
         # Set model parameters.
-        self.theta_0    = torch.nn.parameter.Parameter(torch.tensor(theta_0, dtype = torch.float32, requires_grad = True).reshape(-1));
-        self.theta_1    = torch.nn.parameter.Parameter(torch.tensor(theta_1, dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.theta    = torch.nn.parameter.Parameter(torch.tensor([theta_0, theta_1], dtype = torch.float32, requires_grad = True).reshape(-1));
+        #self.theta_1    = torch.nn.parameter.Parameter(torch.tensor(theta_1, dtype = torch.float32, requires_grad = True).reshape(-1));
 
 
     def forward(self, x : torch.Tensor, y : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
@@ -149,7 +149,7 @@ class Exponential(torch.nn.Module):
         assert(x.numel()    == y.numel());
         
         # compute, return the output         
-        Output : torch.Tensor = self.theta_0*x + self.theta_1*y;
+        Output : torch.Tensor = self.theta[0]*x + self.theta[1]*y;
         return Output;
 
 
