@@ -113,7 +113,7 @@ def Train(  DDE_Module      : torch.nn.Module,
             LOGGER.warning("Resetting tau to %f" % Tau_Threshold);
 
             # Reset tau!
-            tau = Tau_Threshold;
+            tau = torch.tensor(Tau_Threshold, requires_grad = True);
 
 
         # -----------------------------------------------------------------------------------------
