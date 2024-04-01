@@ -11,9 +11,8 @@ class Logistic(torch.nn.Module):
     """ 
     Objects of the Logistic class are designed to model the right-hand side of an 
     exponential type DDE. Consider the following DDE:
-        x'(t) = 
         x'(t) = F(x(t), x(t - \tau), t, \theta)     t \in [0, T]
-        x(t)  = x_0                                 t \in [-\tau, 0]
+        x(t)  = X0(t)                               t \in [-\tau, 0]
     A Logistic object is supposed to act like the function F in the expression above 
     when F has the following general form 
         F(x(t), x(t - Model\tau), t, \theta) = \theta_0 x(t)(1 - \theta_1 x(t - \tau)).
@@ -86,9 +85,8 @@ class Exponential(torch.nn.Module):
     """ 
     Objects of the Exponential class are designed to model the right-hand side of an 
     exponential type DDE. Consider the following DDE:
-        x'(t) = 
         x'(t) = F(x(t), x(t - \tau), t, \theta)     t \in [0, T]
-        x(t)  = x_0                                 t \in [-\tau, 0]
+        x(t)  = X0(t)                               t \in [-\tau, 0]
     A Exponential object is supposed to act like the function F in the expression above 
     when F has the following general form 
         F(x(t), x(t - \tau), t, \theta) = \theta_0 x(t) + \theta_1 x(t - \tau).
@@ -129,8 +127,7 @@ class Exponential(torch.nn.Module):
         """
         We expect x and y to be 1D tensors (with the same length). We also expect t to be a single 
         element tensor. This function then returns
-            F(x, y, t) = \theta_0 x(t) + \theta_1 x(t - \tau).
-        
+            F(x, y, t) = \theta_0 x + \theta_1 y
             
 
         --------------------------------------------------------------------------------------------
@@ -150,6 +147,162 @@ class Exponential(torch.nn.Module):
         
         # compute, return the output         
         Output : torch.Tensor = self.theta[0]*x + self.theta[1]*y;
+        return Output;
+
+
+
+class Cheyne(torch.nn.Module):
+    """ 
+    Objects of the Cheyne class are designed to model the right-hand side of a DDE of the
+    following form:
+        x'(t) = p - V0*x(t)[x(t - tau)^m]/[a + x^m(t - tau)]
+        x(0)  = X0(t) 
+    Here, p, V0, and a are parameters. This equation appears on page 22 of the book 
+    "Mathematical Biology" by Murray. 
+    """
+
+    def __init__(self, p : float = 6.0, V0 : float = 7.0, a : float = 1.0, m: int = 10):
+        """ 
+        This class defines the following right-hand side of a DDE:
+            F(x, y, t) =  p - V0*x[y^m]/[a + y^m]
+        (there is no explicit dependence on t). Thus, the arguments theta_0 and theta_1 define F.
+
+        
+
+        -------------------------------------------------------------------------------------------
+        Arguments: 
+        -------------------------------------------------------------------------------------------
+
+        p, V0, a: These should be floats representing the initial values of the variables p, V0, 
+        and a in the definition above, respectively. We convert these to torch.nn.Parameter 
+        objects which we can train.
+
+        m: An integer representing the variable "m" in the definition above.
+        """
+        
+        # Call the super class initializer. 
+        super().__init__();
+
+        # Run checks.
+        assert(isinstance(p,  float));
+        assert(isinstance(V0, float));
+        assert(isinstance(a,  float));
+        assert(isinstance(m,  int));
+
+        # Set model parameters.
+        self.p  = torch.nn.parameter.Parameter(torch.tensor([p],  dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.V0 = torch.nn.parameter.Parameter(torch.tensor([V0], dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.a  = torch.nn.parameter.Parameter(torch.tensor([a],  dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.m  = torch.tensor(m, dtype = torch.int32);
+
+
+
+    def forward(self, x : torch.Tensor, y : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
+        """
+        We expect x and y to be 1D tensors (with the same length). We also expect t to be a single 
+        element tensor. This function then returns
+            F(x, y, t) =  p - V0*x[y^m]/[a + y^m]
+        
+            
+
+        --------------------------------------------------------------------------------------------
+        Arguments: 
+        --------------------------------------------------------------------------------------------
+        
+        x, y: 1D tensors representing the first two arguments of the right hand side of the above 
+        DDE. These should have the same length.
+
+        t: a single element tensor whose lone value represents the third argument to the DDE above.
+        """
+
+        # Checks.
+        # Checks.
+        assert(len(x.shape) == 1);
+        assert(len(y.shape) == 1);
+        assert(x.numel()    == y.numel());
+        assert(x.numel()    == 1);
+        assert(t.numel()    == 1);
+        
+        # compute, return the output         
+        Output : torch.Tensor = self.p - self.V0*x*torch.pow(y, self.m)/(self.a + torch.pow(y, self.m));
+        return Output;
+
+
+
+
+
+class Haematopoiesis(torch.nn.Module):
+    """ 
+    Objects of the Haematopoiesis class are designed to model the right-hand side of a DDE of the
+    following form:
+        x'(t) = l*x(t - tau)/[1 + x^m(t - tau)] - g*x(t)
+        x(0)  = X0(t) 
+    Here, l, g are parameters. This equation appears on page 27 of the book "Mathematical Biology"
+    by Murray. 
+    """
+
+    def __init__(self, l : float, g : float, m : int = 10):
+        """ 
+        This class defines the following right-hand side of a DDE:
+            F(x, y, t) = l*y/[1 + y^m] - g*x(t)
+        (there is no explicit dependence on t). Thus, the arguments theta_0 and theta_1 define F.
+
+        
+
+        -------------------------------------------------------------------------------------------
+        Arguments: 
+        -------------------------------------------------------------------------------------------
+
+        l, g: These should be floats representing the initial values of the variables l and g in 
+        the definition above, respectively. We convert these to torch.nn.Parameter objects which 
+        can be trained.
+
+        m: An integer representing the variable "m" in the definition above.
+        """
+        
+        # Call the super class initializer. 
+        super().__init__();
+
+        # Run checks.
+        assert(isinstance(l, float));
+        assert(isinstance(g, float));
+        assert(isinstance(m, int));
+
+        # Set model parameters.
+        self.l  = torch.nn.parameter.Parameter(torch.tensor([l], dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.g  = torch.nn.parameter.Parameter(torch.tensor([g], dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.m  = torch.tensor(m, dtype = torch.int32);
+
+
+
+    def forward(self, x : torch.Tensor, y : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
+        """
+        We expect x and y to be 1D tensors (with the same length). We also expect t to be a single 
+        element tensor. This function then returns
+            F(x, y, t) = l*y/[1 + y^m] - g*x(t)
+        
+            
+
+        --------------------------------------------------------------------------------------------
+        Arguments: 
+        --------------------------------------------------------------------------------------------
+        
+        x, y: 1D tensors representing the first two arguments of the right hand side of the above 
+        DDE. These should have the same length.
+
+        t: a single element tensor whose lone value represents the third argument to the DDE above.
+        """
+
+        # Checks.
+        # Checks.
+        assert(len(x.shape) == 1);
+        assert(len(y.shape) == 1);
+        assert(x.numel()    == y.numel());
+        assert(x.numel()    == 1);
+        assert(t.numel()    == 1);
+        
+        # compute, return the output         
+        Output : torch.Tensor = (self.l*y)/(1. + torch.pow(y, self.m)) - self.g*x;
         return Output;
 
 
@@ -208,6 +361,7 @@ class Neural(torch.nn.Module):
         for i in range(self.N_Layers):
             self.Layers.append(torch.nn.Linear(in_features = Widths[i], out_features = Widths[i + 1]));
             torch.nn.init.xavier_normal_(self.Layers[i].weight);
+
             torch.nn.init.zeros_(self.Layers[i].bias);
         
         # Finally, set the activation function.
