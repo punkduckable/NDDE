@@ -6,8 +6,8 @@ from    typing  import Tuple;
 def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     This function computes an approximate solution to the following DDE:
-        x'(t)   = F(x(t), x(t - \tau), t)   t \in [0, T]
-        x(t)    = X0(t)                     t \in [-\tau, 0]
+        x'(t)   = F(x(t), x(t - \tau), tau, t)      t \in [0, T]
+        x(t)    = X0(t)                             t \in [-\tau, 0]
     Here, x \in \mathbb{R}^d.
     
     --------------------------------------------------------------------------------------------
@@ -70,9 +70,9 @@ def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T 
         # Find x at the i+1th time value. Note that if t < tau (equivalently, i < N_tau), then 
         # t - \tau < 0, which means that x(t - \tau) = x0. 
         if i >= N_tau:
-            x_Trajectory[:, i + 1] = x_Trajectory[:, i] + dt*F(x = x_Trajectory[:, i], y = x_Trajectory[:, i - N_tau], t = torch.tensor(float(i*N_tau)));
+            x_Trajectory[:, i + 1] = x_Trajectory[:, i] + dt*F(x = x_Trajectory[:, i], y = x_Trajectory[:, i - N_tau],  tau = tau,  t = torch.tensor(float(i*N_tau)));
         else:
-            x_Trajectory[:, i + 1] = x_Trajectory[:, i] + dt*F(x = x_Trajectory[:, i], y = X0_t[i, :],                  t = torch.tensor(float(i*N_tau)));
+            x_Trajectory[:, i + 1] = x_Trajectory[:, i] + dt*F(x = x_Trajectory[:, i], y = X0_t[i, :],                  tau = tau,  t = torch.tensor(float(i*N_tau)));
 
     # All done!
     return (x_Trajectory, t_Trajectory);
@@ -82,8 +82,8 @@ def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T 
 def RK2(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     This function computes an approximate solution to the following DDE:
-        x'(t)   = F(x(t), x(t - \tau), t)   t \in [0, T]
-        x(t)    = X0(t)                     t \in [-\tau, 0]
+        x'(t)   = F(x(t), x(t - \tau), tau, t)  t \in [0, T]
+        x(t)    = X0(t)                         t \in [-\tau, 0]
     Here, x \in \mathbb{R}^d.
     
     --------------------------------------------------------------------------------------------
@@ -148,12 +148,12 @@ def RK2(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Te
         t_i     : torch.Tensor  = t_Trajectory[i];                                                      # t
         x_i     : torch.Tensor  = x_Trajectory[:, i];                                                   # x(t)
         y_i     : torch.Tensor  = x_Trajectory[:, i - N_tau] if i > N_tau else X0_t[i, :];              # x(t - tau)
-        k1      : torch.Tensor  = F(x_i, y_i, t_i);
+        k1      : torch.Tensor  = F(x_i, y_i, tau, t_i);
 
         t_ip1   : torch.Tensor  = t_Trajectory[i + 1];                                                  # t + dt
         x_ip1   : torch.Tensor  = x_i + dt*k1;                                                          # x(t) + dt*k1
         y_ip1   : torch.Tensor  = x_Trajectory[:, i + 1 - N_tau] if i + 1 > N_tau else X0_t[i + 1, :];  # x(t + dt - tau)
-        k2      : torch.Tensor  = F(x_ip1, y_ip1, t_ip1);
+        k2      : torch.Tensor  = F(x_ip1, y_ip1, tau, t_ip1);
 
         x_Trajectory[:, i + 1]  = x_Trajectory[:, i] + dt*0.5*(k1 + k2);
 

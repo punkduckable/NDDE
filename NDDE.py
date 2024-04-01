@@ -18,8 +18,8 @@ class NDDE(torch.nn.Module):
     """
     Here, we define the NDDE class. This class acts as a wrapper around a MODEL object. Recall 
     that a `MODEL` object acts like the function F in the following DDE:
-            x'(t) = F(x(t), x(t - tau), t)          if t \in [0, T] 
-            x(t)  = X0(t)                           if t \in [-tau, 0]
+            x'(t) = F(x(t), x(t - tau), tau, t)         if t \in [0, T] 
+            x(t)  = X0(t)                               if t \in [-tau, 0]
     The NDDE class accepts a `MODEL`. Its forward method solves the implied DDE on the interval
     [0, T] and then returns the result.
     """
@@ -31,8 +31,8 @@ class NDDE(torch.nn.Module):
         -------------------------------------------------------------------------------------------
 
         F: This is a torch Module object which acts as the function "F" in a DDE: 
-            x'(t) = F(x(t), x(t - \tau), t)     for t \in [0, T]
-            x(t)  = X0(t)                       for t \in [-\tau, 0]
+            x'(t) = F(x(t), x(t - \tau), tau, t)    for t \in [0, T]
+            x(t)  = X0(t)                           for t \in [-\tau, 0]
         Thus, the F should accept three arguments: x(t), x(t - \tau), and t. 
         
         X0: This is a module which gives the initial condition in [-\tau, 0]. In particular, at
@@ -110,8 +110,8 @@ class DDE_adjoint_Backward(torch.autograd.Function):
 
     Forward Pass - During the forward pass, we use a DDE solver to map the initial state, X0, 
     along a predicted trajectory. In particular, we solve the following DDE
-            x'(t)   = F(x(t), x(t - tau), t, theta) t \in [0, T]
-            x(t)    = X0(t)                         t \in [-tau, 0]
+            x'(t)   = F(x(t), x(t - tau), tau, t)       t \in [0, T]
+            x(t)    = X0(t)                             t \in [-tau, 0]
     
     Backward pass - During the backward pass, we use the adjoint sensitivity method to find the 
     gradient of the loss with respect to tau and the network parameters. In particular, we solve
@@ -135,7 +135,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         Arguments:
 
         F: A torch Module object which represents the right-hand side of the DDE,
-                x'(t) = F(x(t), x(t - tau), t)      t \in [0, T]
+                x'(t) = F(x(t), x(t - tau), tau, t)      t \in [0, T]
         
         X0: This is a module which gives the initial condition in [-\tau, 0]. In particular, at
         time t \in [-\tau, 0], we set the initial condition at time t to X0(t). X0 should be a
@@ -342,7 +342,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             y_j         : torch.Tensor  = x_Pred_Values[:, j - N_tau].requires_grad_(True) if j - N_tau >= 0 else X0(t_j - tau).detach().reshape(-1).requires_grad_(True);
             p_j         : torch.Tensor  = p[:, j];
 
-            F_j         : torch.Tensor  = F(x_j, y_j, t_j);
+            F_j         : torch.Tensor  = F(x_j, y_j, tau, t_j);
             F_Values[:, j]              = F_j;
 
             dFdx_T_p[:, j], dFdy_T_p[:, j], *dFdTheta_T_p_tj = torch.autograd.grad(
@@ -382,8 +382,8 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             # Find p at the previous time step. Recall that p satisfies the following DDE:
             #       p'(t) = -dF_dx(t)^T p(t)  - dF_dy(t + tau)^T p(t + tau) 1_{t + tau < T}(t) + d l(x(t))/d x(t)
             #       p(T)  = dG_dX(x(T))  
-            # Let F(t, p(t), p(t + tau)) denote the right-hand side of this equation. We find a 
-            # numerical solution to this DDE using the RK2 method. In this case, we compute
+            # We find a numerical solution to this DDE using the RK2 method. In this case, we 
+            # compute
             #       p(t - dt) \approx p(t) - dt*0.5*(k1 + k2)
             #       k1 = -dF_dx(t)^T p(t)  - dF_dy(t + tau)^T p(t + tau) 1_{t + tau < T}(t) + d l(x(t))/d x(t)
             #       k2 = -dF_dx(t - dt)^T [p(t) - dt*k1]  - dF_dy(t + tau - dt)^T p(t - dt + tau) 1_{t - dt + tau < T}(t) + d l(x(t - dt))/d x(t - dt)
@@ -399,7 +399,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             t_jm1               : torch.Tensor  = t_Values[j - 1];
             x_jm1               : torch.Tensor  = x_Pred_Values[:, j - 1].requires_grad_(True);
             y_jm1               : torch.Tensor  = x_Pred_Values[:, j - 1 - N_tau].requires_grad_(False) if j - 1 - N_tau >= 0 else X0(t_jm1 - tau).detach().reshape(-1).requires_grad_(False);
-            F_jm1               : torch.Tensor  = F(x_jm1, y_jm1, t_jm1);
+            F_jm1               : torch.Tensor  = F(x_jm1, y_jm1, tau, t_jm1);
             p_k1_t_dFdx_t       : torch.Tensor  = torch.autograd.grad(outputs = F_jm1, inputs = x_jm1, grad_outputs = p_j - dt*k1)[0];
 
             torch.set_grad_enabled(False);
@@ -425,8 +425,8 @@ class DDE_adjoint_Backward(torch.autograd.Function):
     
             # In this case, 
             #   dL_dTheta   =  -\int_{t = 0}^T dF_dTheta(x(t), x(t - tau), t)^T p(t) dt
-            #   dL_dtau     = \int_{t = 0}^{T - tau} dF_dy(x(t + tau), x(t), t)^T p(t + tau) \cdot F(x(t), x(t - tau), t) dt
-            #   dL_dPhi      = -(dX0_dPhi(0))^T p(0) -\int_{t = 0}^{tau} (dX0_dPhi(t - tau))^T (dF_dy(t)^T p(t)) dt
+            #   dL_dtau     = \int_{t = 0}^{T - tau} dF_dy(x(t + tau), x(t), t)^T p(t + tau) \cdot F(x(t), x(t - tau), tau, t) dt
+            #   dL_dPhi     = -(dX0_dPhi(0))^T p(0) -\int_{t = 0}^{tau} (dX0_dPhi(t - tau))^T (dF_dy(t)^T p(t)) dt
             # We compute these integrals using the trapezoidal rule. Here, we add the contribution
             # from the j'th step.
 
@@ -462,7 +462,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         y_0         : torch.Tensor  = X0(t_Values_X0[0]).reshape(-1).requires_grad_(True);
         p_0         : torch.Tensor  = p[:, 0];
 
-        F_0         : torch.Tensor  = F(x_0, y_0, t_0);
+        F_0         : torch.Tensor  = F(x_0, y_0, tau, t_0);
         F_Values[:, 0]              = F_0;
 
         dFdx_T_p[:, 0], dFdy_T_p[:, 0], *dFdTheta_T_p_t0 = torch.autograd.grad(

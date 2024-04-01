@@ -9,22 +9,23 @@ LOGGER : logging.Logger = logging.getLogger(__name__);
 
 class Logistic(torch.nn.Module):
     """ 
-    Objects of the Logistic class are designed to model the right-hand side of an 
-    exponential type DDE. Consider the following DDE:
-        x'(t) = F(x(t), x(t - \tau), t, \theta)     t \in [0, T]
-        x(t)  = X0(t)                               t \in [-\tau, 0]
-    A Logistic object is supposed to act like the function F in the expression above 
-    when F has the following general form 
-        F(x(t), x(t - Model\tau), t, \theta) = \theta_0 x(t)(1 - \theta_1 x(t - \tau)).
-    In other words, objects of this class are callable objects which accept three arguments: 
-    x, y, and t. If x = x(t), y = x(t - \tau) then return F evaluated at those inputs. 
+    Objects of the Logistic class are designed to model the right-hand side of an exponential type 
+    DDE. Consider the following DDE:
+        x'(t) = F(x(t), x(t - \tau), \tau, t, \theta)   t \in [0, T]
+        x(t)  = X0(t)                                   t \in [-\tau, 0]
+    A Logistic object is supposed to act like the function F in the expression above when F has the 
+    following general form 
+        F(x(t), x(t - \tau), \tau, t, \theta) = \theta_0 x(t)(1 - \theta_1 x(t - \tau)).
+    In other words, objects of this class are callable objects which accept four arguments: x, y, 
+    tau, and t. If x = x(t), y = x(t - \tau) then return F evaluated at those inputs. 
     """
 
     def __init__(self, theta_0 : float, theta_1 : float):
         """ 
         This class is set up to act as a logistic map:
             F(x, y, t) = c_0*x*(1 - c_1*y)
-        (there is no explicit dependence on t). Thus, the arguments theta_0 and theta_1 define F.
+        (there is no explicit dependence on t or tau). Thus, the arguments theta_0 and theta_1 
+        define F.
         
 
 
@@ -49,12 +50,13 @@ class Logistic(torch.nn.Module):
 
 
 
-    def forward(self, x : torch.Tensor, y : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
+    def forward(self, x : torch.Tensor, y : torch.Tensor, tau : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
         """
         We expect x and y to be 1D tensors with the same number of elements. We also expect to be a
         single element tensor. This function then returns
-            F(x, y, t) = theta_0*x*(1 - theta_1*y).
-        
+            F(x, y, tau, t) = theta_0*x*(1 - theta_1*y).
+        (there is no explicit dependence on t or tau).
+
         
         
         -------------------------------------------------------------------------------------------
@@ -63,6 +65,9 @@ class Logistic(torch.nn.Module):
 
         x, y: 1D tensors representing the first two arguments of the right hand side of the above 
         DDE. These should have the same length.
+
+        tau: A single element tensor whose lone value represents the delay in the DDE (this only 
+        matters if the delay appears explicitly in F).
 
         t: a single element tensor whose lone value represents the third argument to the DDE above.
         """
@@ -73,6 +78,7 @@ class Logistic(torch.nn.Module):
         assert(x.numel()    == y.numel());
         assert(x.numel()    == 1);
         assert(t.numel()    == 1);
+        assert(tau.numel()  == 1);
         
         # compute, return the output         
         Output : torch.Tensor = self.theta[0]*x*(1. - self.theta[1]*y);
@@ -83,22 +89,23 @@ class Logistic(torch.nn.Module):
 
 class Exponential(torch.nn.Module):
     """ 
-    Objects of the Exponential class are designed to model the right-hand side of an 
-    exponential type DDE. Consider the following DDE:
-        x'(t) = F(x(t), x(t - \tau), t, \theta)     t \in [0, T]
-        x(t)  = X0(t)                               t \in [-\tau, 0]
-    A Exponential object is supposed to act like the function F in the expression above 
-    when F has the following general form 
-        F(x(t), x(t - \tau), t, \theta) = \theta_0 x(t) + \theta_1 x(t - \tau).
-    In other words, objects of this class are callable objects which accept three arguments: 
-    x, y, and t. If x = x(t), y = x(t - \tau) then return F evaluated at those inputs. 
+    Objects of the Exponential class are designed to model the right-hand side of an exponential 
+    type DDE. Consider the following DDE:
+        x'(t) = F(x(t), x(t - \tau), \tau, t, \theta)   t \in [0, T]
+        x(t)  = X0(t)                                   t \in [-\tau, 0]
+    A Exponential object is supposed to act like the function F in the expression above when F has the 
+    following general form 
+        F(x(t), x(t - \tau), \tau, t, \theta) = \theta_0 x(t)(1 - \theta_1 x(t - \tau)).
+    In other words, objects of this class are callable objects which accept four arguments: x, y, 
+    tau, and t. If x = x(t), y = x(t - \tau) then return F evaluated at those inputs. 
     """
 
     def __init__(self, theta_0 : float, theta_1 : float):
         """ 
         This class defines the following right-hand side of a DDE:
-            F(x, y, t) = theta_0*x + theta_1*y
-        (there is no explicit dependence on t). Thus, the arguments theta_0 and theta_1 define F.
+            F(x, y, tau, t) = theta_0*x + theta_1*y
+        (there is no explicit dependence on t or tau). Thus, the arguments theta_0 and theta_1 
+        define F.
 
         
 
@@ -123,12 +130,13 @@ class Exponential(torch.nn.Module):
         #self.theta_1    = torch.nn.parameter.Parameter(torch.tensor(theta_1, dtype = torch.float32, requires_grad = True).reshape(-1));
 
 
-    def forward(self, x : torch.Tensor, y : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
+    def forward(self, x : torch.Tensor, y : torch.Tensor, tau : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
         """
         We expect x and y to be 1D tensors (with the same length). We also expect t to be a single 
         element tensor. This function then returns
-            F(x, y, t) = \theta_0 x + \theta_1 y
-            
+            F(x, y, tau, t) = \theta_0 x + \theta_1 y
+        (there is no explicit dependence on t or tau).
+
 
         --------------------------------------------------------------------------------------------
         Arguments: 
@@ -137,6 +145,9 @@ class Exponential(torch.nn.Module):
         x, y: 1D tensors representing the first two arguments of the right hand side of the above 
         DDE. These should have the same length.
 
+        tau: A single element tensor whose lone value represents the delay in the DDE (this only 
+        matters if the delay appears explicitly in F).
+
         t: a single element tensor whose lone value represents the third argument to the DDE above.
         """
 
@@ -144,7 +155,9 @@ class Exponential(torch.nn.Module):
         assert(len(x.shape) == 1);
         assert(len(y.shape) == 1);
         assert(x.numel()    == y.numel());
-        
+        assert(t.numel()    == 1);
+        assert(tau.numel()  == 1);
+
         # compute, return the output         
         Output : torch.Tensor = self.theta[0]*x + self.theta[1]*y;
         return Output;
@@ -164,8 +177,9 @@ class Cheyne(torch.nn.Module):
     def __init__(self, p : float = 6.0, V0 : float = 7.0, a : float = 1.0, m: int = 10):
         """ 
         This class defines the following right-hand side of a DDE:
-            F(x, y, t) =  p - V0*x[y^m]/[a + y^m]
-        (there is no explicit dependence on t). Thus, the arguments theta_0 and theta_1 define F.
+            F(x, y, tau, t) =  p - V0*x[y^m]/[a + y^m]
+        (there is no explicit dependence on t or tau). Thus, the arguments theta_0 and theta_1 
+        define F.
 
         
 
@@ -197,12 +211,12 @@ class Cheyne(torch.nn.Module):
 
 
 
-    def forward(self, x : torch.Tensor, y : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
+    def forward(self, x : torch.Tensor, y : torch.Tensor, tau : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
         """
         We expect x and y to be 1D tensors (with the same length). We also expect t to be a single 
         element tensor. This function then returns
-            F(x, y, t) =  p - V0*x[y^m]/[a + y^m]
-        
+            F(x, y, tau, t) =  p - V0*x[y^m]/[a + y^m]
+        (there is no explicit dependence on t or tau).
             
 
         --------------------------------------------------------------------------------------------
@@ -212,16 +226,19 @@ class Cheyne(torch.nn.Module):
         x, y: 1D tensors representing the first two arguments of the right hand side of the above 
         DDE. These should have the same length.
 
+        tau: A single element tensor whose lone value represents the delay in the DDE (this only 
+        matters if the delay appears explicitly in F).
+
         t: a single element tensor whose lone value represents the third argument to the DDE above.
         """
 
-        # Checks.
         # Checks.
         assert(len(x.shape) == 1);
         assert(len(y.shape) == 1);
         assert(x.numel()    == y.numel());
         assert(x.numel()    == 1);
         assert(t.numel()    == 1);
+        assert(tau.numel()  == 1);
         
         # compute, return the output         
         Output : torch.Tensor = self.p - self.V0*x*torch.pow(y, self.m)/(self.a + torch.pow(y, self.m));
@@ -231,20 +248,26 @@ class Cheyne(torch.nn.Module):
 
 
 
-class Haematopoiesis(torch.nn.Module):
+class HIV(torch.nn.Module):
     """ 
-    Objects of the Haematopoiesis class are designed to model the right-hand side of a DDE of the
-    following form:
-        x'(t) = l*x(t - tau)/[1 + x^m(t - tau)] - g*x(t)
-        x(0)  = X0(t) 
-    Here, l, g are parameters. This equation appears on page 27 of the book "Mathematical Biology"
-    by Murray. 
+    HIV class objects model the dynamics of infected cells and HIV viruses in hunan cells. This 
+    involves the following DDE in \mathbb{R}^3, 
+        (d/dt)T*(t)     = k T0 VI(t - tau) exp(-m tau) - d T*(t)
+        (d/dt)V_{I}(t)  = (1 - np) d N T*(t) - c V_{I}(t)
+        (d/dt)V_{NI}    = np d N T*(t) - c V_{NI}(t)
+    Here, k, d, np, N, and c are learnable parameters. T0 is a fixed constant. This equation 
+    appears is from the following paper:
+        
+        Nelson, Patrick W., James D. Murray, and Alan S. Perelson. "A model of HIV-1 pathogenesis 
+        that includes an intracellular delay." Mathematical biosciences 163.2 (2000): 201-215.
     """
 
-    def __init__(self, l : float, g : float, m : int = 10):
+    def __init__(self, k : float = .0000343,  T0 : float = 180, m : float = 0.1, d : float = 0.5, np : float = 0.75, N : float = 480, c : float = 3):
         """ 
         This class defines the following right-hand side of a DDE:
-            F(x, y, t) = l*y/[1 + y^m] - g*x(t)
+            F(x, y, tau, t) =   { k T0 y[1] exp(-m tau) - d x[0]
+                                { (1 - np) d N x[0] - c x[1]
+                                { np d N x[0] - c x[2]
         (there is no explicit dependence on t). Thus, the arguments theta_0 and theta_1 define F.
 
         
@@ -253,36 +276,44 @@ class Haematopoiesis(torch.nn.Module):
         Arguments: 
         -------------------------------------------------------------------------------------------
 
-        l, g: These should be floats representing the initial values of the variables l and g in 
-        the definition above, respectively. We convert these to torch.nn.Parameter objects which 
-        can be trained.
+        k, m, d, np, N, c: Trainable parameters in the above model.
 
-        m: An integer representing the variable "m" in the definition above.
+        T0: The population of non-infected T-cells. This is not a trainable parameter.
         """
         
         # Call the super class initializer. 
         super().__init__();
 
         # Run checks.
-        assert(isinstance(l, float));
-        assert(isinstance(g, float));
-        assert(isinstance(m, int));
+        assert(isinstance(k,  float));
+        assert(isinstance(d,  float));
+        assert(isinstance(np, float));
+        assert(isinstance(N,  float));
+        assert(isinstance(c,  float));
+        assert(isinstance(T0,  float));
 
         # Set model parameters.
-        self.l  = torch.nn.parameter.Parameter(torch.tensor([l], dtype = torch.float32, requires_grad = True).reshape(-1));
-        self.g  = torch.nn.parameter.Parameter(torch.tensor([g], dtype = torch.float32, requires_grad = True).reshape(-1));
-        self.m  = torch.tensor(m, dtype = torch.int32);
+        self.k  = torch.nn.parameter.Parameter(torch.tensor([d], dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.m  = torch.nn.parameter.Parameter(torch.tensor([m], dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.d  = torch.nn.parameter.Parameter(torch.tensor([k], dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.np = torch.nn.parameter.Parameter(torch.tensor([np], dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.N  = torch.nn.parameter.Parameter(torch.tensor([N], dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.c  = torch.nn.parameter.Parameter(torch.tensor([c], dtype = torch.float32, requires_grad = True).reshape(-1));
+        
+        self.T0 = torch.tensor([T0], dtype = torch.float32).reshape(-1);
 
 
 
-    def forward(self, x : torch.Tensor, y : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
+    def forward(self, x : torch.Tensor, y : torch.Tensor, tau : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
         """
         We expect x and y to be 1D tensors (with the same length). We also expect t to be a single 
         element tensor. This function then returns
-            F(x, y, t) = l*y/[1 + y^m] - g*x(t)
-        
+            F(x, y, tau, t) =   { k T0 y[1] exp(-m tau) - d x[0]
+                                { (1 - np) d N x[0] - c x[1]
+                                { np d N x[0] - c x[2]
             
 
+                                
         --------------------------------------------------------------------------------------------
         Arguments: 
         --------------------------------------------------------------------------------------------
@@ -290,20 +321,25 @@ class Haematopoiesis(torch.nn.Module):
         x, y: 1D tensors representing the first two arguments of the right hand side of the above 
         DDE. These should have the same length.
 
+        tau: A single element tensor whose lone value represents the delay in the DDE (this only 
+        matters if the delay appears explicitly in F).
+
         t: a single element tensor whose lone value represents the third argument to the DDE above.
         """
 
         # Checks.
-        # Checks.
         assert(len(x.shape) == 1);
         assert(len(y.shape) == 1);
         assert(x.numel()    == y.numel());
-        assert(x.numel()    == 1);
+        assert(x.numel()    == 3);
         assert(t.numel()    == 1);
-        
-        # compute, return the output         
-        Output : torch.Tensor = (self.l*y)/(1. + torch.pow(y, self.m)) - self.g*x;
-        return Output;
+        assert(tau.numel()  == 1);
+
+        # compute, return the output  
+        F0  : torch.Tensor  = self.k*self.T0*y[1]*torch.exp(-self.m*tau) - self.d * x[0];
+        F1  : torch.Tensor  = (1 - self.np)*self.d*self.N*x[0] - self.c*x[1];
+        F2  : torch.Tensor  = (self.np * self.d * self.N)*x[0] - self.c*x[2];
+        return torch.concat([F0, F1, F2]);
 
 
 
@@ -311,15 +347,14 @@ class Neural(torch.nn.Module):
     """ 
     A Neural class object is a neural network object which represents the right-hand side of a DDE.
     Consider the following DDE:
-        x'(t) = 
-        x'(t) = F(x(t), x(t - \tau), t, \theta)     t \in [0, T]
-        x(t)  = x_0                                 t \in [-\tau, 0]
+        x'(t) = F(x(t), x(t - \tau), tau, t, \theta)    t \in [0, T]
+        x(t)  = x_0                                     t \in [-\tau, 0]
     A Neural object is supposed to act like the function F in the expression above when F is a 
     neural network. 
 
-    In other words, objects of this class are callable objects which accept three arguments: 
-    x, y, and t. If x = x(t), y = x(t - \tau) then return F evaluated at those inputs. 
-    If x(t) \in \mathbb{R}^d, then the neural network should take inputs in \mathbb{R}^(2d + 1)
+    In other words, objects of this class are callable objects which accept four arguments: 
+    x, y, tau, and t. If x = x(t), y = x(t - \tau) then return F evaluated at those inputs. 
+    If x(t) \in \mathbb{R}^d, then the neural network should take inputs in \mathbb{R}^(2d + 2)
     and map to \mathbb{R}^d.
     """
 
@@ -327,7 +362,7 @@ class Neural(torch.nn.Module):
         """ 
         This class defines the right-hand side of a DDE as a neural network. We use Widths to 
         define the widths of the layers in the network. We also use the softplus activation 
-        function after each hidden layer    .
+        function after each hidden layer.
 
 
         
@@ -339,8 +374,8 @@ class Neural(torch.nn.Module):
         neural network. Widths[0] represents the dimension of the domain, while Widths[-1] 
         represents the dimension of the co-domain. For i \in {1, 2, ... , N - 1}, Widths[i] 
         represents the width of the i'th hidden layer. Because a Neural object takes in x(t), y(t), 
-        and t as inputs (and the former two live in \mathbb{R}^d), Widths[0] must be 2d + 1 (odd 
-        and >= 3). Finally, Widths[1] must be d. 
+        tau, and t as inputs (and the former two live in \mathbb{R}^d), Widths[0] must be 2d + 2 
+        (even and >= 4). Finally, Widths[1] must be d. 
         """
         
         # Call the super class initializer. 
@@ -351,9 +386,9 @@ class Neural(torch.nn.Module):
         for i in range(self.N_Layers + 1):
             assert(isinstance(Widths[i], int));
         
-        # Find d, make sure 2*Widths[-1] + 1 == Widths[0].
+        # Find d, make sure 2*Widths[-1] + 2 == Widths[0].
         self.d = Widths[-1];
-        assert(Widths[0] == 2*self.d + 1);
+        assert(Widths[0] == 2*self.d + 2);
         self.Widths = Widths;
 
         # Set up the network's layers.
@@ -369,9 +404,9 @@ class Neural(torch.nn.Module):
 
 
 
-    def forward(self, x : torch.Tensor, y : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
+    def forward(self, x : torch.Tensor, y : torch.Tensor, tau : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
         """
-        This function passes x, y, and t through the neural network and returns F(x, y, t) (see 
+        This function passes x, y, and t through the neural network and returns F(x, y, tau, t) (see 
         class doc string).
         
         --------------------------------------------------------------------------------------------
@@ -379,7 +414,10 @@ class Neural(torch.nn.Module):
 
         x, y: 1D tensors representing the first two arguments of the right hand side of the above 
         DDE. These should have the same length, d. 
-
+        
+        tau: A single element tensor whose lone value represents the delay in the DDE (this only 
+        matters if the delay appears explicitly in F).
+        
         t: a single element tensor whose lone value represents the third argument to the DDE above.
         """
 
@@ -389,7 +427,8 @@ class Neural(torch.nn.Module):
         assert(x.numel()    == y.numel());
         assert(x.numel()    == self.d);
         assert(t.numel()    == 1);
-        
+        assert(tau.numel()  == 1);
+
         # Set up the input to the network.
         X : torch.Tensor = torch.concat([x.reshape(-1), y.reshape(-1), t.reshape(-1)], dim = 0);
 
