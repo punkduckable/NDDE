@@ -274,7 +274,9 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         xT_Target       : torch.Tensor  = x_Targ_Values[:, -1];
         G_xT            : torch.Tensor  = G(xT_Predict, xT_Target);
 
-        grad_G_xT   : torch.Tensor  = torch.autograd.grad(outputs = G_xT, inputs = xT_Predict, allow_unused = True)[0];
+        grad_G_xT   : torch.Tensor  = torch.autograd.grad(  outputs         = G_xT, 
+                                                            inputs          = xT_Predict, 
+                                                            allow_unused    = True)[0];
         if(grad_G_xT is None):
             grad_G_xT = torch.zeros_like(xT_Predict);
         p[:, -1] = -grad_G_xT;
@@ -282,10 +284,11 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         torch.set_grad_enabled(False);
 
         # Set up vectors to track (dF_dx(t))^T p(t), (dF_dy(t))^T p(t), (dF_dy(t + tau))F(t), 
-        # (dF_dTheta)(t))^T p(T), and (dX0_dPhi(t - tau))^T (dF_dY(t)^T p(t)).
+        # (dF_dTheta)(t))^T p(T), (dF_dtau)(t)^T p(t) and (dX0_dPhi(t - tau))^T (dF_dY(t)^T p(t)).
         F_Values            = torch.empty([d,           N + 1], dtype = torch.float32);
         dFdx_T_p            = torch.empty([d,           N + 1], dtype = torch.float32);
         dFdy_T_p            = torch.empty([d,           N + 1], dtype = torch.float32);
+        dFdtau_T_p          = torch.empty([d,           N + 1], dtype = torch.float32);
         dldx                = torch.empty([d,           N + 1], dtype = torch.float32);
         
         dFdTheta_T_p_tj      = [];
@@ -345,11 +348,18 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             F_j         : torch.Tensor  = F(x_j, y_j, tau, t_j);
             F_Values[:, j]              = F_j;
 
-            dFdx_T_p[:, j], dFdy_T_p[:, j], *dFdTheta_T_p_tj = torch.autograd.grad(
+            dFdx_T_p[:, j], dFdy_T_p[:, j], dFdtau_T_p_tj, *dFdTheta_T_p_tj = torch.autograd.grad(
                                                                             outputs         = F_j, 
-                                                                            inputs          = (x_j, y_j, *F_Params), 
-                                                                            grad_outputs    = p_j);
+                                                                            inputs          = (x_j, y_j, tau, *F_Params), 
+                                                                            grad_outputs    = p_j, 
+                                                                            allow_unused    = True);
             
+            # F may not explicitly depend on tau, in which case dFdtau_T_p_tj will be None.
+            if(dFdtau_T_p_tj is None):
+                dFdtau_T_p[:, j] = torch.zeros_like(F_j);
+            else:
+                dFdtau_T_p[:, j] = dFdtau_T_p_tj
+
             # Compute dl_dx at the j-1'th time step.
             x_Targ_jm1  : torch.Tensor  = x_Targ_Values[:, j - 1];
             x_jm1       : torch.Tensor  = x_Pred_Values[:, j - 1].requires_grad_(True);
@@ -400,7 +410,9 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             x_jm1               : torch.Tensor  = x_Pred_Values[:, j - 1].requires_grad_(True);
             y_jm1               : torch.Tensor  = x_Pred_Values[:, j - 1 - N_tau].requires_grad_(False) if j - 1 - N_tau >= 0 else X0(t_jm1 - tau).detach().reshape(-1).requires_grad_(False);
             F_jm1               : torch.Tensor  = F(x_jm1, y_jm1, tau, t_jm1);
-            p_k1_t_dFdx_t       : torch.Tensor  = torch.autograd.grad(outputs = F_jm1, inputs = x_jm1, grad_outputs = p_j - dt*k1)[0];
+            p_k1_t_dFdx_t       : torch.Tensor  = torch.autograd.grad(  outputs         = F_jm1, 
+                                                                        inputs          = x_jm1, 
+                                                                        grad_outputs    = p_j - dt*k1)[0];
 
             torch.set_grad_enabled(False);
 
@@ -424,19 +436,27 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             # Accumulate results to compute integrals for dL_dtau, dL_dTheta, and dL_dPhi
     
             # In this case, 
-            #   dL_dTheta   =  -\int_{t = 0}^T dF_dTheta(x(t), x(t - tau), t)^T p(t) dt
-            #   dL_dtau     = \int_{t = 0}^{T - tau} dF_dy(x(t + tau), x(t), t)^T p(t + tau) \cdot F(x(t), x(t - tau), tau, t) dt
-            #   dL_dPhi     = -(dX0_dPhi(0))^T p(0) -\int_{t = 0}^{tau} (dX0_dPhi(t - tau))^T (dF_dy(t)^T p(t)) dt
+            #   dL_dTheta   =  -\int_{t = 0}^T dF_dTheta(x(t), x(t - tau), tau, t)^T p(t) dt
+            #
+            #   dL_dtau     = \int_{t = 0}^{T - tau} dF_dy(x(t + tau), x(t), tau, t + tau)^T p(t + tau) \cdot F(x(t), x(t - tau), tau, t) dt 
+            #               + \int_{0}^{T} p(t) \cdot (dF_dtau)(x(t), x(t - tau), tau, t) dt
+            #
+            #   dL_dPhi     = -(dX0_dPhi(0))^T p(0) -\int_{t = 0}^{tau} (dX0_dPhi(t - tau))^T (dF_dy(x(t), x(t - tau), tau, t)^T p(t)) dt
             # We compute these integrals using the trapezoidal rule. Here, we add the contribution
             # from the j'th step.
 
+            # dL_dtau
             if(j < N):
-                for i in range(N_F_Params):
-                    dL_dTheta[i] -= 0.5*dt*(dFdTheta_T_p_tj[i] + dFdTheta_T_p_tjp1[i]);
+                dL_dtau     -=  0.5*dt*(dFdtau_T_p[:, j] + dFdtau_T_p[:, j + 1]);
             if(j < N - N_tau):
                 dL_dtau     +=  0.5*dt*(torch.dot(dFdy_T_p[:, j +     N_tau], F_Values[:, j    ]) + 
                                         torch.dot(dFdy_T_p[:, j + 1 + N_tau], F_Values[:, j + 1]));
+            # dL_dTheta 
+            if(j < N):
+                for i in range(N_F_Params):
+                    dL_dTheta[i] -= 0.5*dt*(dFdTheta_T_p_tj[i] + dFdTheta_T_p_tjp1[i]);
             
+            # dL_dPhi
             if(j < N_tau):
                 for i in range(N_X0_Params):
                     dL_dPhi[i]  -= 0.5*dt*(dX0dPhi_T_dFdy_T_p[i][..., j] + dX0dPhi_T_dFdy_T_p[i][..., j + 1]);
@@ -465,10 +485,18 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         F_0         : torch.Tensor  = F(x_0, y_0, tau, t_0);
         F_Values[:, 0]              = F_0;
 
-        dFdx_T_p[:, 0], dFdy_T_p[:, 0], *dFdTheta_T_p_t0 = torch.autograd.grad(
+        dFdx_T_p[:, 0], dFdy_T_p[:, 0], dFdtau_T_p_t0, *dFdTheta_T_p_t0 = torch.autograd.grad(
                                                                         outputs         = F_0, 
-                                                                        inputs          = (x_0, y_0, *F_Params), 
-                                                                        grad_outputs    = p_0);
+                                                                        inputs          = (x_0, y_0, tau, *F_Params), 
+                                                                        grad_outputs    = p_0, 
+                                                                        allow_unused    = True);
+
+        # F may not explicitly depend on tau, in which case dFdtau_T_p_t0 will be None.
+        if(dFdtau_T_p_t0 is None):
+            dFdtau_T_p[:, 0] = torch.zeros_like(F_0);
+        else:
+            dFdtau_T_p[:, 0] = dFdtau_T_p_t0
+
 
         # Now, let's compute (dX0_dPhi(-tau))^T (dF_dy(0)^T p(0)).
         dX0dPhi_T_dFdy_T_p_t0 = torch.autograd.grad(                    outputs         = X0(t_Values_X0[0]).reshape(-1),
@@ -487,16 +515,23 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         torch.set_grad_enabled(False);
         
 
+        # -----------------------------------------------------------------------------------------
         # Accumulate the contributions to the gradient integral from the 0 time step. 
-        for i in range(N_F_Params):
-            dL_dTheta[i] -= 0.5*dt*(dFdTheta_T_p_t0[i] + dFdTheta_T_p_tjp1[i]);
-        
+
+        # dL_dtau 
+        dL_dtau -= 0.5*dt*(dFdtau_T_p[:, 0] + dFdtau_T_p[:, 1]);
+
         # Note: If tau > T, then the loss has no dependence on tau. Otherwise, we should accumulate 
         # the portion of the integral for dL_dtau from the interval [0, dt].
         if(N_tau < N):
             dL_dtau     +=  0.5*dt*(torch.dot(dFdy_T_p[:, 0 + N_tau], F_Values[:, 0]) + 
                                     torch.dot(dFdy_T_p[:, 1 + N_tau], F_Values[:, 1]));
 
+        # dL_dTheta
+        for i in range(N_F_Params):
+            dL_dTheta[i] -= 0.5*dt*(dFdTheta_T_p_t0[i] + dFdTheta_T_p_tjp1[i]);
+        
+        # dL_dPhi
         for i in range(N_X0_Params):
             dL_dPhi[i] -= 0.5*dt*(dX0dPhi_T_dFdy_T_p[i][..., 0] + dX0dPhi_T_dFdy_T_p[i][..., 1]);
 
