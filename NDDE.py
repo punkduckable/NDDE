@@ -9,9 +9,6 @@ from    Solver  import  RK2             as DDE_Solver;
 import logging;
 LOGGER : logging.Logger = logging.getLogger(__name__);
 
-# Should we make debug plots?
-Debug_Plots : bool = False;
-
 
 
 class NDDE(torch.nn.Module):
@@ -248,7 +245,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         # evaluate the interpolation of the predicted, target solution at these values. 
         x_Targ_Values   : torch.Tensor      = torch.from_numpy(x_Targ_Interp(t_Values.detach().numpy())).to(dtype = torch.float32);
         x_Pred_Values   : torch.Tensor      = torch.from_numpy(x_Pred_Interp(t_Values.detach().numpy())).to(dtype = torch.float32);
-        
+
         # Determine the dimension of the space in which the dynamics happen
         d               : int               = x_Pred_Values.shape[1];
 
@@ -291,9 +288,9 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         dFdtau_T_p          = torch.empty([N + 1,   1], dtype = torch.float32);
         dldx                = torch.empty([N + 1,   d], dtype = torch.float32);
         
-        dFdTheta_T_p_tj      = [];
+        dFdTheta_T_p      = [];
         for i in range(N_F_Params):
-            dFdTheta_T_p_tj.append(torch.empty([N + 1] + list(F_Params[i].shape), dtype = torch.float32));
+            dFdTheta_T_p.append(torch.empty([N + 1] + list(F_Params[i].shape), dtype = torch.float32));
 
         dX0dPhi_T_dFdy_T_p  = [];
         for i in range(N_X0_Params):
@@ -308,11 +305,6 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         for i in range(N_X0_Params):
             dL_dPhi.append(torch.zeros_like(X0_Params[i]));
 
-        # Initialize the adjoint, theta derivative calculations from the j+1'th time step (when 
-        # j == N, this is just zero).
-        dFdTheta_T_p_tjp1    : List[torch.Tensor] = [];
-        for i in range(N_F_Params):
-            dFdTheta_T_p_tjp1.append(torch.empty_like(F_Params[i]));
 
 
         ###########################################################################################
@@ -358,7 +350,11 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             if(dFdtau_T_p_tj is None):
                 dFdtau_T_p[j, :] = torch.zeros_like(tau);
             else:
-                dFdtau_T_p[j, :] = dFdtau_T_p_tj
+                dFdtau_T_p[j, :] = dFdtau_T_p_tj;
+            
+            # Store the theta gradients.
+            for i in range(N_F_Params):
+                dFdTheta_T_p[i][j, ...] = dFdTheta_T_p_tj[i];
 
             # Compute dl_dx at the j-1'th time step.
             x_Targ_jm1  : torch.Tensor  = x_Targ_Values[j - 1, :];
@@ -454,19 +450,12 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             # dL_dTheta 
             if(j < N):
                 for i in range(N_F_Params):
-                    dL_dTheta[i] -= 0.5*dt*(dFdTheta_T_p_tj[i] + dFdTheta_T_p_tjp1[i]);
+                    dL_dTheta[i] -= 0.5*dt*(dFdTheta_T_p[i][j, ...] + dFdTheta_T_p[i][j + 1, ...]);
             
             # dL_dPhi
             if(j < N_tau):
                 for i in range(N_X0_Params):
                     dL_dPhi[i]  -= 0.5*dt*(dX0dPhi_T_dFdy_T_p[i][j, ...] + dX0dPhi_T_dFdy_T_p[i][j + 1, ...]);
-
-
-            # -------------------------------------------------------------------------------------
-            # Update dFdTheta_T_p_tjp1.
-        
-            for i in range(N_F_Params):
-                dFdTheta_T_p_tjp1[i] = dFdTheta_T_p_tj[i];
 
 
 
@@ -497,18 +486,21 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         else:
             dFdtau_T_p[0, :] = dFdtau_T_p_t0
 
+        # Let's store the theta gradients.
+        for i in range(N_F_Params):
+            dFdTheta_T_p[i][0, ...] = dFdTheta_T_p_t0[i];
 
         # Now, let's compute (dX0_dPhi(-tau))^T (dF_dy(0)^T p(0)).
         dX0dPhi_T_dFdy_T_p_t0 = torch.autograd.grad(                    outputs         = X0(t_Values_X0[0]).reshape(-1),
                                                                         inputs          = X0_Params, 
                                                                         grad_outputs    = dFdy_T_p[0, :]);
 
-        # Finally, let's compute (dX0_dPhi(0))^T p(0)
+        # Next, let's compute (dX0_dPhi(0))^T p(0)
         dX0dPhi_T_p_t0       = torch.autograd.grad(                     outputs         = X0(t_0).reshape(-1), 
                                                                         inputs          = X0_Params,
                                                                         grad_outputs    = p_0);
 
-        # And finally, let's store the gradients. 
+        # And finally, let's store the phi gradients. 
         for i in range(N_X0_Params):
             dX0dPhi_T_dFdy_T_p[i][0, ...] = dX0dPhi_T_dFdy_T_p_t0[i];
 
@@ -529,7 +521,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
 
         # dL_dTheta
         for i in range(N_F_Params):
-            dL_dTheta[i] -= 0.5*dt*(dFdTheta_T_p_t0[i] + dFdTheta_T_p_tjp1[i]);
+            dL_dTheta[i] -= 0.5*dt*(dFdTheta_T_p[i][0, ...] + dFdTheta_T_p[i][1, ...]);
         
         # dL_dPhi
         for i in range(N_X0_Params):
@@ -538,39 +530,6 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         # Add the (dX0_dPhi(0)^T p(0) part of the dL_dPhi computation 
         for i in range(N_X0_Params):
             dL_dPhi[i] -= dX0dPhi_T_p_t0[i];
-
-
-
-        ###########################################################################################
-        # Debug plots!
-        
-        if(Debug_Plots == True):
-            # Plot the final trajectory, gradients.
-            plt.figure(0);
-            plt.plot(t_Values, p[:, 0].detach().numpy());
-            plt.xlabel(r"$t$");
-            plt.ylabel(r"$p(t)$");
-            plt.title("Adjoint");
-
-            plt.figure(1);
-            plt.plot(t_Values, x_Pred_Values[:, 0].detach().numpy());
-            plt.xlabel(r"$t$");
-            plt.ylabel("predicted position");
-            plt.title("Predicted trajectory");
-            plt.yscale('log');
-
-            plt.figure(2);
-            plt.plot(t_Values, dFdx_T_p[:, 0].reshape(-1).detach().numpy());
-            plt.xlabel(r"$t$");
-            plt.ylabel(r"$(dF/dx)(t)$");
-            plt.title("Gradient of F with respect to $x(t)$ along the predicted trajectory");
-
-            plt.figure(3);
-            plt.plot(t_Values, dFdy_T_p[:, 0].reshape(-1).detach().numpy());
-            plt.xlabel(r"$t$");
-            plt.ylabel(r"$(dF/dy)(t)$");
-            plt.title("Gradient of F with respect to $y(t) = x(t - tau)$ along the predicted trajectory");
-
 
         # All done... The kth return argument represents the gradient for the kth argument to forward.
         #      F,    X0,   tau,     T,    l,    G,    x_Targ_Interp, N_F_Params, N_X0_Params, Params 

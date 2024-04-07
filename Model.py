@@ -262,11 +262,18 @@ class HIV(torch.nn.Module):
         that includes an intracellular delay." Mathematical biosciences 163.2 (2000): 201-215.
     """
 
-    def __init__(self, k : float = .0000343,  T0 : float = 180, m : float = 0.1, d : float = 0.5, np : float = 0.75, N : float = 480, c : float = 3):
+    def __init__(   self, 
+                    k   : float = 0.0000343,  
+                    T0  : float = 180.0, 
+                    m   : float = 6.0, 
+                    d   : float = 0.5, 
+                    np  : float = 0.43, 
+                    N   : float = 480.0, 
+                    c   : float = 0.25):
         """ 
         This class defines the following right-hand side of a DDE:
-            F(x, y, tau, t) =   { k T0 y[1] exp(-m tau) - d x[0]
-                                { (1 - np) d N x[0] - c x[1]
+                                { k T0 y[1] exp(-m tau) - d x[0]
+            F(x, y, tau, t) =   { (1 - np) d N x[0] - c x[1]
                                 { np d N x[0] - c x[2]
         (there is no explicit dependence on t). Thus, the arguments theta_0 and theta_1 define F.
 
@@ -293,9 +300,9 @@ class HIV(torch.nn.Module):
         assert(isinstance(T0,  float));
 
         # Set model parameters.
-        self.k  = torch.nn.parameter.Parameter(torch.tensor([d], dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.k  = torch.nn.parameter.Parameter(torch.tensor([k], dtype = torch.float32, requires_grad = True).reshape(-1));
         self.m  = torch.nn.parameter.Parameter(torch.tensor([m], dtype = torch.float32, requires_grad = True).reshape(-1));
-        self.d  = torch.nn.parameter.Parameter(torch.tensor([k], dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.d  = torch.nn.parameter.Parameter(torch.tensor([d], dtype = torch.float32, requires_grad = True).reshape(-1));
         self.np = torch.nn.parameter.Parameter(torch.tensor([np], dtype = torch.float32, requires_grad = True).reshape(-1));
         self.N  = torch.nn.parameter.Parameter(torch.tensor([N], dtype = torch.float32, requires_grad = True).reshape(-1));
         self.c  = torch.nn.parameter.Parameter(torch.tensor([c], dtype = torch.float32, requires_grad = True).reshape(-1));
@@ -335,10 +342,10 @@ class HIV(torch.nn.Module):
         assert(t.numel()    == 1);
         assert(tau.numel()  == 1);
 
-        # compute, return the output  
-        F0  : torch.Tensor  = self.k*self.T0*y[1]*torch.exp(-self.m*tau) - self.d * x[0];
-        F1  : torch.Tensor  = (1 - self.np)*self.d*self.N*x[0] - self.c*x[1];
-        F2  : torch.Tensor  = (self.np * self.d * self.N)*x[0] - self.c*x[2];
+        # compute, return the output  torch.exp(-self.m*tau)
+        F0  : torch.Tensor  = (self.k * self.T0 * torch.exp(-self.m*tau))*y[1]  - self.d * x[0];
+        F1  : torch.Tensor  = ((1. - self.np) * self.d * self.N)*x[0]           - self.c * x[1];
+        F2  : torch.Tensor  = (self.np        * self.d * self.N)*x[0]           - self.c * x[2];
         return torch.concat([F0, F1, F2]);
 
 

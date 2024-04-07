@@ -21,7 +21,7 @@ class L2_Cost(torch.nn.Module):
 
         Weight: This defines the weight in the weighted L2 norm. Weight can be one of three things:
         a float, a single element tensor, or a 1D tensor. If the weight is a float or a single 
-        element tensor, we compute Weight*||x - y||_1. If it is a 1D tensor, then it must have the 
+        element tensor, we compute Weight*||x - y||_2^2. If it is a 1D tensor, then it must have the 
         same length as x, y. In this case, we compute sum_{i = 1}^{n} Weight_i |x_i - y_i|^2. 
         """
 
@@ -81,34 +81,73 @@ class L2_Cost(torch.nn.Module):
 
 
 class L1_Cost(torch.nn.Module):
-    def __init__(self, Weight : float = 1.0) -> None:
+    def __init__(self, Weight : Union[float, torch.Tensor]) -> None:
         """
-        This class computes a weighted L1 squared norm between x and y. Specifically, it 
-        computes Weight*||x(T) - y(T)||_1.
+        A L1 object is a functor which computes a weighted L1 norm between x and y. 
+        Specifically, it computes \sum_{i = 1}^{n} Weight_i |x_i - y_i|.
+
+        
+        -------------------------------------------------------------------------------------------
+        Arguments:
+
+        Weight: This defines the weight in the weighted L1 norm. Weight can be one of three things:
+        a float, a single element tensor, or a 1D tensor. If the weight is a float or a single 
+        element tensor, we compute Weight*||x - y||_1. If it is a 1D tensor, then it must have the 
+        same length as x, y. In this case, we compute sum_{i = 1}^{n} Weight_i |x_i - y_i|. 
         """
 
-        # Call the super class initializer.
+        # Run the super class initializer. 
         super(L1_Cost, self).__init__();
+    
+        # Make sure the Weight has the right type.
+        if(  isinstance(Weight, float)):
+            self.d      = None;
+            self.Weight = torch.tensor([Weight], dtype = torch.float32);
+            
+        
+        else:
+            # Make sure we have a tensor.
+            assert(isinstance(Weight, torch.Tensor));
 
-        # Store the weight.
-        self.Weight = Weight;
+            # We need to handle the single element tensor and 1D tensor cases separately. 
+            if(  Weight.size == 1):
+                self.d      = None;
+                self.Weight = Weight.reshape(-1);
+            
+            
+            else:
+                assert(len(Weight.shape) == 1);
+    
+                self.d      = Weight.numel();
+                self.Weight = Weight;
 
 
 
     def forward(self, x : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
-        """ 
-        Implements the terminal cost or "G" portion of the loss function for the NDDE algorithm. 
-        Specifically, if x and y are in \mathbb{R}^d, then we return
-            Weight*[ (x0 - y0)^2 + ... + (x_{d - 1} - y_{d - 1})^2 ]
+        """
+        This function computes a weighted L2 norm squared between x and y. Thus, if x, y \in 
+        \mathbb{R}^d, then we return 
+                Weight_0*|x_0 - y_0| + ... + Weight_{d - 1}*|x_{d - 1} - y_{d - 1}|
 
-        
+                
         -----------------------------------------------------------------------------------------------
         Arguments:
-    
+
         x, y: 1D tensors. They must have the same number of components.
         """
 
-        return self.Weight*torch.sum(torch.abs(x - y));
+        # Run checks.
+        assert(len(x.shape) == 1);
+        assert(x.shape      == y.shape);
+
+        # If self.Weight is a 1D vector, then the length of that vector must match the length of x
+        # and y. If self.Weight is a single element Weight, or a float, then x and y can have 
+        # arbitrary length; we set Weight_0 = ... = Weight_{d - 1} = self.Weight.
+        if(self.d is not None):
+            assert(x.numel() == self.d);
+            return torch.dot(self.Weight, torch.abs(x - y));
+        else:
+            return self.Weight*torch.sum(torch.abs(x - y));
 
 
 
@@ -122,7 +161,7 @@ def Integral_Loss(
         L(x_p(t), x_t(t)) = \int_{0}^{T} l(x_p(t), x_t(t)) dt
     Here, x_p represents the predicted trajectory while x_t is the true or target one. Likewise,
     l(x, y) is the function defined above. This could be an function like
-        l(x, y) = ||x - y||^2 dt
+        l(x, y) = ||x - y||^2 
 
     
     -----------------------------------------------------------------------------------------------
