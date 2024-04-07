@@ -348,7 +348,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             
             # F may not explicitly depend on tau, in which case dFdtau_T_p_tj will be None.
             if(dFdtau_T_p_tj is None):
-                dFdtau_T_p[j, :] = torch.zeros_like(tau);
+                dFdtau_T_p[j, :] = 0.;
             else:
                 dFdtau_T_p[j, :] = dFdtau_T_p_tj;
             
@@ -425,7 +425,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             if(j + N_tau >= N):
                 p[j - 1, :] = p[j, :] - dt*(-dFdx_T_p[j, :] + dldx[j, :]);
             else: 
-                p[j - 1, :] = p[j, :] - dt*(-dFdx_T_p[j, :] + dldx[j, :] - dFdy_T_p[j + N_tau, :);
+                p[j - 1, :] = p[j, :] - dt*(-dFdx_T_p[j, :] + dldx[j, :] - dFdy_T_p[j + N_tau, :]);
             """
 
             # -------------------------------------------------------------------------------------
@@ -445,8 +445,9 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             if(j < N):
                 dL_dtau     -=  0.5*dt*(dFdtau_T_p[j, :] + dFdtau_T_p[j + 1, :]);
             if(j < N - N_tau):
-                dL_dtau     -=  0.5*dt*(torch.dot(dFdy_T_p[j +     N_tau, :], F_Values[j    , :]) + 
+                dL_dtau     +=  0.5*dt*(torch.dot(dFdy_T_p[j +     N_tau, :], F_Values[j,     :]) + 
                                         torch.dot(dFdy_T_p[j + 1 + N_tau, :], F_Values[j + 1, :]));
+            
             # dL_dTheta 
             if(j < N):
                 for i in range(N_F_Params):

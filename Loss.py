@@ -39,7 +39,7 @@ class L2_Cost(torch.nn.Module):
             assert(isinstance(Weight, torch.Tensor));
 
             # We need to handle the single element tensor and 1D tensor cases separately. 
-            if(  Weight.size == 1):
+            if(  Weight.numel() == 1):
                 self.d      = None;
                 self.Weight = Weight.reshape(-1);
             
@@ -110,7 +110,7 @@ class L1_Cost(torch.nn.Module):
             assert(isinstance(Weight, torch.Tensor));
 
             # We need to handle the single element tensor and 1D tensor cases separately. 
-            if(  Weight.size == 1):
+            if(  Weight.numel() == 1):
                 self.d      = None;
                 self.Weight = Weight.reshape(-1);
             
@@ -195,8 +195,8 @@ def Integral_Loss(
     assert(Predict_Trajectory.shape[0]      == t_Trajectory.shape[0]);
 
     # Fetch number of data points. 
-    d : int = Predict_Trajectory.shape[0];
-    N : int = Predict_Trajectory.shape[1];
+    N : int = Predict_Trajectory.shape[0];
+    d : int = Predict_Trajectory.shape[1];
 
     # First compute the integrand.
     Integrand   : torch.Tensor  = torch.zeros(N);
