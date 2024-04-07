@@ -288,7 +288,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         F_Values            = torch.empty([d,           N + 1], dtype = torch.float32);
         dFdx_T_p            = torch.empty([d,           N + 1], dtype = torch.float32);
         dFdy_T_p            = torch.empty([d,           N + 1], dtype = torch.float32);
-        dFdtau_T_p          = torch.empty([d,           N + 1], dtype = torch.float32);
+        dFdtau_T_p          = torch.empty([1,           N + 1], dtype = torch.float32);
         dldx                = torch.empty([d,           N + 1], dtype = torch.float32);
         
         dFdTheta_T_p_tj      = [];
@@ -356,7 +356,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             
             # F may not explicitly depend on tau, in which case dFdtau_T_p_tj will be None.
             if(dFdtau_T_p_tj is None):
-                dFdtau_T_p[:, j] = torch.zeros_like(F_j);
+                dFdtau_T_p[:, j] = torch.zeros_like(tau);
             else:
                 dFdtau_T_p[:, j] = dFdtau_T_p_tj
 
@@ -439,7 +439,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             #   dL_dTheta   =  -\int_{t = 0}^T dF_dTheta(x(t), x(t - tau), tau, t)^T p(t) dt
             #
             #   dL_dtau     = \int_{t = 0}^{T - tau} dF_dy(x(t + tau), x(t), tau, t + tau)^T p(t + tau) \cdot F(x(t), x(t - tau), tau, t) dt 
-            #               + \int_{0}^{T} p(t) \cdot (dF_dtau)(x(t), x(t - tau), tau, t) dt
+            #               - \int_{0}^{T} p(t) \cdot (dF_dtau)(x(t), x(t - tau), tau, t) dt
             #
             #   dL_dPhi     = -(dX0_dPhi(0))^T p(0) -\int_{t = 0}^{tau} (dX0_dPhi(t - tau))^T (dF_dy(x(t), x(t - tau), tau, t)^T p(t)) dt
             # We compute these integrals using the trapezoidal rule. Here, we add the contribution
@@ -449,7 +449,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             if(j < N):
                 dL_dtau     -=  0.5*dt*(dFdtau_T_p[:, j] + dFdtau_T_p[:, j + 1]);
             if(j < N - N_tau):
-                dL_dtau     +=  0.5*dt*(torch.dot(dFdy_T_p[:, j +     N_tau], F_Values[:, j    ]) + 
+                dL_dtau     -=  0.5*dt*(torch.dot(dFdy_T_p[:, j +     N_tau], F_Values[:, j    ]) + 
                                         torch.dot(dFdy_T_p[:, j + 1 + N_tau], F_Values[:, j + 1]));
             # dL_dTheta 
             if(j < N):
