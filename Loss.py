@@ -1,4 +1,4 @@
-from    typing  import Callable;
+from    typing  import Union; 
 
 import  torch;
 
@@ -8,18 +8,55 @@ import logging;
 LOGGER : logging.Logger = logging.getLogger(__name__);
 
 
-class Running_Cost(torch.nn.Module):
-    def __init__(self) -> None:
-        # Call the super class initializer.
-        super(Running_Cost, self).__init__();
+
+class L2_Cost(torch.nn.Module):
+    def __init__(self, Weight : Union[float, torch.Tensor]) -> None:
+        """
+        A L2_Cost object is a functor which computes a weighted L2 norm between x and y. 
+        Specifically, it computes \sum_{i = 1}^{n} Weight_i |x_i - y_i|^2.
+
+        
+        -------------------------------------------------------------------------------------------
+        Arguments:
+
+        Weight: This defines the weight in the weighted L2 norm. Weight can be one of three things:
+        a float, a single element tensor, or a 1D tensor. If the weight is a float or a single 
+        element tensor, we compute Weight*||x - y||_1. If it is a 1D tensor, then it must have the 
+        same length as x, y. In this case, we compute sum_{i = 1}^{n} Weight_i |x_i - y_i|^2. 
+        """
+
+        # Run the super class initializer. 
+        super(L2_Cost, self).__init__();
+    
+        # Make sure the Weight has the right type.
+        if(  isinstance(Weight, float)):
+            self.d      = None;
+            self.Weight = torch.tensor([Weight], dtype = torch.float32);
+            
+        
+        else:
+            # Make sure we have a tensor.
+            assert(isinstance(Weight, torch.Tensor));
+
+            # We need to handle the single element tensor and 1D tensor cases separately. 
+            if(  Weight.size == 1):
+                self.d      = None;
+                self.Weight = Weight.reshape(-1);
+            
+            
+            else:
+                assert(len(Weight.shape) == 1);
+    
+                self.d      = Weight.numel();
+                self.Weight = Weight;
 
 
 
     def forward(self, x : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
         """
-        This function computes the L2 norm squared between x and y. Thus, if x, y \in \mathbb{R}^d, 
-        then we return 
-                (x_0 - y_0)^2 + ... + (x_{d - 1} - y_{d - 1})^2
+        This function computes a weighted L2 norm squared between x and y. Thus, if x, y \in 
+        \mathbb{R}^d, then we return 
+                Weight_0*(x_0 - y_0)^2 + ... + Weight_{d - 1}*(x_{d - 1} - y_{d - 1})^2
 
                 
         -----------------------------------------------------------------------------------------------
@@ -32,23 +69,26 @@ class Running_Cost(torch.nn.Module):
         assert(len(x.shape) == 1);
         assert(x.shape      == y.shape);
 
-        # Compute the L2 norm squared between x and y, return it.
-        return torch.sum(torch.square(x - y));
+        # If self.Weight is a 1D vector, then the length of that vector must match the length of x
+        # and y. If self.Weight is a single element Weight, or a float, then x and y can have 
+        # arbitrary length; we set Weight_0 = ... = Weight_{d - 1} = self.Weight.
+        if(self.d is not None):
+            assert(x.numel() == self.d);
+            return torch.dot(self.Weight, torch.square(x - y));
+        else:
+            return self.Weight*torch.sum(torch.square(x - y));
 
 
 
-class Terminal_Cost(torch.nn.Module):
-    def __init__(self, Weight : float = 0.0) -> None:
+class L1_Cost(torch.nn.Module):
+    def __init__(self, Weight : float = 1.0) -> None:
         """
-        This function computes a weighted L2 squared norm between x and y. Specifically, it 
-        computes Weight*||x(T) - y(T)||_2^2.
-
-        We usually use this for the terminal cost. The Weight allows us to weigh how much we care 
-        about the terminal cost.
+        This class computes a weighted L1 squared norm between x and y. Specifically, it 
+        computes Weight*||x(T) - y(T)||_1.
         """
 
         # Call the super class initializer.
-        super(Terminal_Cost, self).__init__();
+        super(L1_Cost, self).__init__();
 
         # Store the weight.
         self.Weight = Weight;
@@ -68,7 +108,7 @@ class Terminal_Cost(torch.nn.Module):
         x, y: 1D tensors. They must have the same number of components.
         """
 
-        return self.Weight*torch.sum(torch.square(x - y));
+        return self.Weight*torch.sum(torch.abs(x - y));
 
 
 
@@ -76,7 +116,7 @@ def Integral_Loss(
             Predict_Trajectory      : torch.Tensor, 
             Target_Trajectory       : torch.Tensor,
             t_Trajectory            : torch.Tensor,
-            l                       : Running_Cost) -> torch.Tensor:
+            l                       : torch.nn.Module) -> torch.Tensor:
     """
     This function approximates the loss 
         L(x_p(t), x_t(t)) = \int_{0}^{T} l(x_p(t), x_t(t)) dt
@@ -89,15 +129,15 @@ def Integral_Loss(
     Arguments: 
 
     Predict_Trajectory: The trajectory that we get when we use our current model to forecast the
-    trajectory. This should be a d x N + 1 tensor, where N is the number of time steps. The jth 
-    column should, therefore, hold the value of the predicted solution at the jth time value.
+    trajectory. This should be a N + 1 x d tensor, where N is the number of time steps. The i'th 
+    row should, therefore, hold the value of the predicted solution at the i'th time value.
 
     Target_Trajectory: The trajectory we want the predicted trajectory to match. This should be 
-    a d x N + 1 tensor whose jth column holds the value of the true/target trajectory at the jth 
+    a N + 1 x d tensor whose i'th row holds the value of the true/target trajectory at the i'th 
     time value.
 
-    t_Trajectory: a 1D tensor whose jth element holds the time value associated with the jth column 
-    of the Predicted or Target trajectory. 
+    t_Trajectory: a 1D tensor whose i'th element holds the time value associated with the i'th 
+    row of the Predicted or Target trajectory. 
     
     l: The running cost function in the loss function above.
 
@@ -106,14 +146,14 @@ def Integral_Loss(
     Returns:
 
     If there are N time steps, then we return the value
-        \sum_{j = 0}^{N} 0.5*(t[j + 1] - t[j])*(l(x_p(t_j), x_t(t_j)) + l(x_p(t_{j + 1}), x_t(t_{j + 1})))
-    where t_j represents the jth entry of t_trajectory.
+        \sum_{i = 0}^{N} 0.5*(t[i + 1] - t[i])*(l(x_p(t_i), x_t(t_i)) + l(x_p(t_{i + 1}), x_t(t_{i + 1})))
+    where t_i represents the i'th entry of t_trajectory.
     """
     
     # Run checks!
     assert(len(Predict_Trajectory.shape)    == 2);
     assert(Predict_Trajectory.shape         == Target_Trajectory.shape)
-    assert(Predict_Trajectory.shape[1]      == t_Trajectory.shape[0]);
+    assert(Predict_Trajectory.shape[0]      == t_Trajectory.shape[0]);
 
     # Fetch number of data points. 
     d : int = Predict_Trajectory.shape[0];
@@ -122,7 +162,7 @@ def Integral_Loss(
     # First compute the integrand.
     Integrand   : torch.Tensor  = torch.zeros(N);
     for j in range(N):
-        Integrand[j] = l(Predict_Trajectory[:, j], Target_Trajectory[:, j]);
+        Integrand[j] = l(Predict_Trajectory[j, :], Target_Trajectory[j, :]);
 
     # Now compute the loss using the trapezoidal rule.
     Loss        : torch.Tensor  = torch.zeros(1, dtype = torch.float32, requires_grad = True);
@@ -144,15 +184,15 @@ def SSE_Loss(   Predict_Trajectory  : torch.Tensor,
     Arguments:
 
     Precict_Trajectory: The trajectory that we get when we use our current model to forecast the
-    trajectory. This should be a d x N + 1 tensor, where N is the number of time steps. The jth 
-    column should, therefore, hold the value of the predicted solution at the jth time value.
+    trajectory. This should be a N + 1 x d tensor, where N is the number of time steps. The i'th 
+    row should, therefore, hold the value of the predicted solution at the i'th time value.
 
     Target_Trajectory: The trajectory we want the predicted trajectory to match. This should be 
-    a d x N + 1 tensor whose jth column holds the value of the true/target trajectory at the jth 
+    a N + 1 x d tensor whose i'th row holds the value of the true/target trajectory at the i'th 
     time value.
 
-    t_Trajectory: a 1D tensor whose jth element holds the time value associated with the jth column 
-    of the Predicted or Target trajectory. We do not use this argument in this function.
+    t_Trajectory: a 1D tensor whose i'th element holds the time value associated with the i'th 
+    row of the Predicted or Target trajectory. We do not use this argument in this function.
 
     -----------------------------------------------------------------------------------------------
     Returns: 
