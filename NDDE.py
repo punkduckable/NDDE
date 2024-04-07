@@ -240,17 +240,17 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         # Now, let's set up an interpolation of the forward trajectory. We will evaluate this 
         # interpolation at each time when we want to compute the adjoint. This allows us to use
         # a different time step for the forward and backwards passes. 
-        x_Pred_Interp                       = interpolate.interp1d(x = t_Trajectory.detach().numpy(), y = x_Trajectory.detach().numpy())
+        x_Pred_Interp                       = interpolate.CubicSpline(x = t_Trajectory.detach().numpy(), y = x_Trajectory.detach().numpy())
         
         # Find time values for backwards pass. 
         t_Values        : torch.Tensor      = torch.linspace(start = 0, end = T, steps = N + 1);
 
         # evaluate the interpolation of the predicted, target solution at these values. 
-        x_Targ_Values   : torch.Tensor      = torch.from_numpy(x_Targ_Interp(t_Values.detach().numpy()));
-        x_Pred_Values   : torch.Tensor      = torch.from_numpy(x_Pred_Interp(t_Values.detach().numpy()));
+        x_Targ_Values   : torch.Tensor      = torch.from_numpy(x_Targ_Interp(t_Values.detach().numpy())).to(dtype = torch.float32);
+        x_Pred_Values   : torch.Tensor      = torch.from_numpy(x_Pred_Interp(t_Values.detach().numpy())).to(dtype = torch.float32);
         
         # Determine the dimension of the space in which the dynamics happen
-        d               : int               = x_Pred_Values.shape[0];
+        d               : int               = x_Pred_Values.shape[1];
 
         # Determine the time values at which we will evaluate the IC: -\tau, -\tau + dt, ... , 0.
         t_Values_X0     : torch.Tensor      = torch.linspace(start = -tau.item(), end = 0, steps = N_tau + 1);
@@ -260,9 +260,9 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         ###########################################################################################
         # Initialize arrays to hold p, vector-jacobian products at each time step
 
-        # Set up a tensor to hold the adjoint. p[:, j] holds the value of the adjoint at the
+        # Set up a tensor to hold the adjoint. p[j, :] holds the value of the adjoint at the
         # jth time value.   
-        p               : torch.Tensor      = torch.zeros([d, N + 1],    dtype = torch.float32);
+        p               : torch.Tensor      = torch.zeros([N + 1, d],    dtype = torch.float32);
 
         # Now, we need to set p's initial conditions. From the paper, the adjoint at time T should 
         # be set to -dg/dx(T). Let's compute that! Note that it's possible that our implementation 
@@ -270,8 +270,8 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         # \nabla_{x(T)} G(x(T)) will return None. If we get None, we just set the gradient to zero.
         torch.set_grad_enabled(True);
 
-        xT_Predict      : torch.Tensor  = x_Pred_Values[:, -1].requires_grad_(True);
-        xT_Target       : torch.Tensor  = x_Targ_Values[:, -1];
+        xT_Predict      : torch.Tensor  = x_Pred_Values[-1, :].requires_grad_(True);
+        xT_Target       : torch.Tensor  = x_Targ_Values[-1, :];
         G_xT            : torch.Tensor  = G(xT_Predict, xT_Target);
 
         grad_G_xT   : torch.Tensor  = torch.autograd.grad(  outputs         = G_xT, 
@@ -279,25 +279,25 @@ class DDE_adjoint_Backward(torch.autograd.Function):
                                                             allow_unused    = True)[0];
         if(grad_G_xT is None):
             grad_G_xT = torch.zeros_like(xT_Predict);
-        p[:, -1] = -grad_G_xT;
+        p[-1, :] = -grad_G_xT;
         
         torch.set_grad_enabled(False);
 
         # Set up vectors to track (dF_dx(t))^T p(t), (dF_dy(t))^T p(t), (dF_dy(t + tau))F(t), 
         # (dF_dTheta)(t))^T p(T), (dF_dtau)(t)^T p(t) and (dX0_dPhi(t - tau))^T (dF_dY(t)^T p(t)).
-        F_Values            = torch.empty([d,           N + 1], dtype = torch.float32);
-        dFdx_T_p            = torch.empty([d,           N + 1], dtype = torch.float32);
-        dFdy_T_p            = torch.empty([d,           N + 1], dtype = torch.float32);
-        dFdtau_T_p          = torch.empty([1,           N + 1], dtype = torch.float32);
-        dldx                = torch.empty([d,           N + 1], dtype = torch.float32);
+        F_Values            = torch.empty([N + 1,   d], dtype = torch.float32);
+        dFdx_T_p            = torch.empty([N + 1,   d], dtype = torch.float32);
+        dFdy_T_p            = torch.empty([N + 1,   d], dtype = torch.float32);
+        dFdtau_T_p          = torch.empty([N + 1,   1], dtype = torch.float32);
+        dldx                = torch.empty([N + 1,   d], dtype = torch.float32);
         
         dFdTheta_T_p_tj      = [];
         for i in range(N_F_Params):
-            dFdTheta_T_p_tj.append(torch.empty(list(F_Params[i].shape) + [N + 1], dtype = torch.float32));
+            dFdTheta_T_p_tj.append(torch.empty([N + 1] + list(F_Params[i].shape), dtype = torch.float32));
 
         dX0dPhi_T_dFdy_T_p  = [];
         for i in range(N_X0_Params):
-            dX0dPhi_T_dFdy_T_p.append(torch.empty(list(X0_Params[i].shape) + [N_tau + 1], dtype = torch.float32));
+            dX0dPhi_T_dFdy_T_p.append(torch.empty([N_tau + 1] + list(X0_Params[i].shape), dtype = torch.float32));
         
         # Set up vectors to hold dL_dtau, dL_dTheta, and dL_dPhi.
         dL_dTheta       : List[torch.Tensor] = [];
@@ -323,10 +323,10 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         # few time steps, we can safely ignore it. We do need to compute the former, however.
         torch.set_grad_enabled(True);
         
-        xT_Predict      : torch.Tensor  = x_Pred_Values[:, -1].requires_grad_(True);
-        xT_Target       : torch.Tensor  = x_Targ_Values[:, -1];
+        xT_Predict      : torch.Tensor  = x_Pred_Values[-1, :].requires_grad_(True);
+        xT_Target       : torch.Tensor  = x_Targ_Values[-1, :];
         l_xT            : torch.Tensor  = l(xT_Predict, xT_Target);
-        dldx[:, -1]                     = torch.autograd.grad(outputs = l_xT, inputs = xT_Predict)[0];
+        dldx[-1, :]                     = torch.autograd.grad(outputs = l_xT, inputs = xT_Predict)[0];
 
         torch.set_grad_enabled(False);
 
@@ -341,14 +341,14 @@ class DDE_adjoint_Backward(torch.autograd.Function):
 
             # First, let's compute p(t) dF_dx(t), p(t) dF_dy(t), and p(t) dF_dtheta(t).
             t_j         : torch.Tensor  = t_Values[j];
-            x_j         : torch.Tensor  = x_Pred_Values[:, j].requires_grad_(True);
-            y_j         : torch.Tensor  = x_Pred_Values[:, j - N_tau].requires_grad_(True) if j - N_tau >= 0 else X0(t_j - tau).detach().reshape(-1).requires_grad_(True);
-            p_j         : torch.Tensor  = p[:, j];
+            x_j         : torch.Tensor  = x_Pred_Values[j,          :].requires_grad_(True);
+            y_j         : torch.Tensor  = x_Pred_Values[j - N_tau,  :].requires_grad_(True) if j - N_tau >= 0 else X0(t_j - tau).detach().reshape(-1).requires_grad_(True);
+            p_j         : torch.Tensor  = p[j, :];
 
             F_j         : torch.Tensor  = F(x_j, y_j, tau, t_j);
-            F_Values[:, j]              = F_j;
+            F_Values[j, :]              = F_j;
 
-            dFdx_T_p[:, j], dFdy_T_p[:, j], dFdtau_T_p_tj, *dFdTheta_T_p_tj = torch.autograd.grad(
+            dFdx_T_p[j, :], dFdy_T_p[j, :], dFdtau_T_p_tj, *dFdTheta_T_p_tj = torch.autograd.grad(
                                                                             outputs         = F_j, 
                                                                             inputs          = (x_j, y_j, tau, *F_Params), 
                                                                             grad_outputs    = p_j, 
@@ -356,15 +356,15 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             
             # F may not explicitly depend on tau, in which case dFdtau_T_p_tj will be None.
             if(dFdtau_T_p_tj is None):
-                dFdtau_T_p[:, j] = torch.zeros_like(tau);
+                dFdtau_T_p[j, :] = torch.zeros_like(tau);
             else:
-                dFdtau_T_p[:, j] = dFdtau_T_p_tj
+                dFdtau_T_p[j, :] = dFdtau_T_p_tj
 
             # Compute dl_dx at the j-1'th time step.
-            x_Targ_jm1  : torch.Tensor  = x_Targ_Values[:, j - 1];
-            x_jm1       : torch.Tensor  = x_Pred_Values[:, j - 1].requires_grad_(True);
+            x_Targ_jm1  : torch.Tensor  = x_Targ_Values[j - 1, :];
+            x_jm1       : torch.Tensor  = x_Pred_Values[j - 1, :].requires_grad_(True);
             l_x_jm1     : torch.Tensor  = l(x_jm1, x_Targ_jm1);
-            dldx[:, j - 1]              = torch.autograd.grad(outputs = l_x_jm1, inputs = x_jm1)[0];
+            dldx[j - 1, :]              = torch.autograd.grad(outputs = l_x_jm1, inputs = x_jm1)[0];
     
             # Compute (dX0_dPhi(t - tau))^T (dF_dy(t)^T p(t)).
             if(j <= N_tau):
@@ -376,11 +376,11 @@ class DDE_adjoint_Backward(torch.autograd.Function):
                 dX0dPhi_T_dFdY_T_p_tj          = torch.autograd.grad(
                                                         outputs         = X0_tj_m_tau,
                                                         inputs          = X0_Params,
-                                                        grad_outputs    = dFdy_T_p[:, j]);
+                                                        grad_outputs    = dFdy_T_p[j, :]);
                 
                 # Store the gradients!
                 for i in range(N_X0_Params):
-                    dX0dPhi_T_dFdy_T_p[i][..., j] = dX0dPhi_T_dFdY_T_p_tj[i];
+                    dX0dPhi_T_dFdy_T_p[i][j, ...] = dX0dPhi_T_dFdY_T_p_tj[i];
 
             # We are all done tracking gradients.
             torch.set_grad_enabled(False);
@@ -399,16 +399,16 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             #       k2 = -dF_dx(t - dt)^T [p(t) - dt*k1]  - dF_dy(t + tau - dt)^T p(t - dt + tau) 1_{t - dt + tau < T}(t) + d l(x(t - dt))/d x(t - dt)
             
             # First, compute k1
-            k1 : torch.Tensor   = -dFdx_T_p[:, j] + dldx[:, j]
+            k1 : torch.Tensor   = -dFdx_T_p[j, :] + dldx[j, :]
             if(j + N_tau < N):
-                k1 -= dFdy_T_p[:, j + N_tau];
+                k1 -= dFdy_T_p[j + N_tau, :];
 
             # To compute k2, we need to first compute the Jacobian Vector product -dF_dx(t - dt)^T [p(t) - dt*k1].
             torch.set_grad_enabled(True);
 
             t_jm1               : torch.Tensor  = t_Values[j - 1];
-            x_jm1               : torch.Tensor  = x_Pred_Values[:, j - 1].requires_grad_(True);
-            y_jm1               : torch.Tensor  = x_Pred_Values[:, j - 1 - N_tau].requires_grad_(False) if j - 1 - N_tau >= 0 else X0(t_jm1 - tau).detach().reshape(-1).requires_grad_(False);
+            x_jm1               : torch.Tensor  = x_Pred_Values[j - 1,          :].requires_grad_(True);
+            y_jm1               : torch.Tensor  = x_Pred_Values[j - 1 - N_tau,  :].requires_grad_(False) if j - 1 - N_tau >= 0 else X0(t_jm1 - tau).detach().reshape(-1).requires_grad_(False);
             F_jm1               : torch.Tensor  = F(x_jm1, y_jm1, tau, t_jm1);
             p_k1_t_dFdx_t       : torch.Tensor  = torch.autograd.grad(  outputs         = F_jm1, 
                                                                         inputs          = x_jm1, 
@@ -417,19 +417,19 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             torch.set_grad_enabled(False);
 
             # We can now compute k2
-            k2 : torch.Tensor   = -p_k1_t_dFdx_t + dldx[:, j - 1];
+            k2 : torch.Tensor   = -p_k1_t_dFdx_t + dldx[j - 1, :];
             if(j - 1 + N_tau < N):
-                k2 -= dFdy_T_p[:, j - 1 + N_tau];
+                k2 -= dFdy_T_p[j - 1 + N_tau, :];
 
             # Finally, we can compute p.
-            p[:, j - 1] = p[:, j] - dt*0.5*(k1 + k2);
+            p[j - 1, :] = p[j, :] - dt*0.5*(k1 + k2);
             
             """
             # Forward Euler Method
             if(j + N_tau >= N):
-                p[:, j - 1] = p[:, j] - dt*(-dFdx_T_p[:, j] + dldx[:, j]);
+                p[j - 1, :] = p[j, :] - dt*(-dFdx_T_p[j, :] + dldx[j, :]);
             else: 
-                p[:, j - 1] = p[:, j] - dt*(-dFdx_T_p[:, j] + dldx[:, j] - dFdy_T_p[:, j + N_tau]);
+                p[j - 1, :] = p[j, :] - dt*(-dFdx_T_p[j, :] + dldx[j, :] - dFdy_T_p[j + N_tau, :);
             """
 
             # -------------------------------------------------------------------------------------
@@ -447,10 +447,10 @@ class DDE_adjoint_Backward(torch.autograd.Function):
 
             # dL_dtau
             if(j < N):
-                dL_dtau     -=  0.5*dt*(dFdtau_T_p[:, j] + dFdtau_T_p[:, j + 1]);
+                dL_dtau     -=  0.5*dt*(dFdtau_T_p[j, :] + dFdtau_T_p[j + 1, :]);
             if(j < N - N_tau):
-                dL_dtau     -=  0.5*dt*(torch.dot(dFdy_T_p[:, j +     N_tau], F_Values[:, j    ]) + 
-                                        torch.dot(dFdy_T_p[:, j + 1 + N_tau], F_Values[:, j + 1]));
+                dL_dtau     -=  0.5*dt*(torch.dot(dFdy_T_p[j +     N_tau, :], F_Values[j    , :]) + 
+                                        torch.dot(dFdy_T_p[j + 1 + N_tau, :], F_Values[j + 1, :]));
             # dL_dTheta 
             if(j < N):
                 for i in range(N_F_Params):
@@ -459,7 +459,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             # dL_dPhi
             if(j < N_tau):
                 for i in range(N_X0_Params):
-                    dL_dPhi[i]  -= 0.5*dt*(dX0dPhi_T_dFdy_T_p[i][..., j] + dX0dPhi_T_dFdy_T_p[i][..., j + 1]);
+                    dL_dPhi[i]  -= 0.5*dt*(dX0dPhi_T_dFdy_T_p[i][j, ...] + dX0dPhi_T_dFdy_T_p[i][j + 1, ...]);
 
 
             # -------------------------------------------------------------------------------------
@@ -478,14 +478,14 @@ class DDE_adjoint_Backward(torch.autograd.Function):
 
         # First, let's compute p(0) dF_dx(0), p(0) dF_dy(0), and p(0) dF_dTheta(0).
         t_0         : torch.Tensor  = t_Values[0];
-        x_0         : torch.Tensor  = x_Pred_Values[:, 0].requires_grad_(True);
+        x_0         : torch.Tensor  = x_Pred_Values[0, :].requires_grad_(True);
         y_0         : torch.Tensor  = X0(t_Values_X0[0]).reshape(-1).requires_grad_(True);
-        p_0         : torch.Tensor  = p[:, 0];
+        p_0         : torch.Tensor  = p[0, :];
 
         F_0         : torch.Tensor  = F(x_0, y_0, tau, t_0);
-        F_Values[:, 0]              = F_0;
+        F_Values[0, :]              = F_0;
 
-        dFdx_T_p[:, 0], dFdy_T_p[:, 0], dFdtau_T_p_t0, *dFdTheta_T_p_t0 = torch.autograd.grad(
+        dFdx_T_p[0, :], dFdy_T_p[0, :], dFdtau_T_p_t0, *dFdTheta_T_p_t0 = torch.autograd.grad(
                                                                         outputs         = F_0, 
                                                                         inputs          = (x_0, y_0, tau, *F_Params), 
                                                                         grad_outputs    = p_0, 
@@ -493,15 +493,15 @@ class DDE_adjoint_Backward(torch.autograd.Function):
 
         # F may not explicitly depend on tau, in which case dFdtau_T_p_t0 will be None.
         if(dFdtau_T_p_t0 is None):
-            dFdtau_T_p[:, 0] = torch.zeros_like(F_0);
+            dFdtau_T_p[0, :] = torch.zeros_like(F_0);
         else:
-            dFdtau_T_p[:, 0] = dFdtau_T_p_t0
+            dFdtau_T_p[0, :] = dFdtau_T_p_t0
 
 
         # Now, let's compute (dX0_dPhi(-tau))^T (dF_dy(0)^T p(0)).
         dX0dPhi_T_dFdy_T_p_t0 = torch.autograd.grad(                    outputs         = X0(t_Values_X0[0]).reshape(-1),
                                                                         inputs          = X0_Params, 
-                                                                        grad_outputs    = dFdy_T_p[:, 0]);
+                                                                        grad_outputs    = dFdy_T_p[0, :]);
 
         # Finally, let's compute (dX0_dPhi(0))^T p(0)
         dX0dPhi_T_p_t0       = torch.autograd.grad(                     outputs         = X0(t_0).reshape(-1), 
@@ -510,7 +510,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
 
         # And finally, let's store the gradients. 
         for i in range(N_X0_Params):
-            dX0dPhi_T_dFdy_T_p[i][..., 0] = dX0dPhi_T_dFdy_T_p_t0[i];
+            dX0dPhi_T_dFdy_T_p[i][0, ...] = dX0dPhi_T_dFdy_T_p_t0[i];
 
         torch.set_grad_enabled(False);
         
@@ -519,13 +519,13 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         # Accumulate the contributions to the gradient integral from the 0 time step. 
 
         # dL_dtau 
-        dL_dtau -= 0.5*dt*(dFdtau_T_p[:, 0] + dFdtau_T_p[:, 1]);
+        dL_dtau -= 0.5*dt*(dFdtau_T_p[0, :] + dFdtau_T_p[1, :]);
 
         # Note: If tau > T, then the loss has no dependence on tau. Otherwise, we should accumulate 
         # the portion of the integral for dL_dtau from the interval [0, dt].
         if(N_tau < N):
-            dL_dtau     +=  0.5*dt*(torch.dot(dFdy_T_p[:, 0 + N_tau], F_Values[:, 0]) + 
-                                    torch.dot(dFdy_T_p[:, 1 + N_tau], F_Values[:, 1]));
+            dL_dtau     +=  0.5*dt*(torch.dot(dFdy_T_p[0 + N_tau, :], F_Values[0, :]) + 
+                                    torch.dot(dFdy_T_p[1 + N_tau, :], F_Values[1, :]));
 
         # dL_dTheta
         for i in range(N_F_Params):
@@ -533,7 +533,7 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         
         # dL_dPhi
         for i in range(N_X0_Params):
-            dL_dPhi[i] -= 0.5*dt*(dX0dPhi_T_dFdy_T_p[i][..., 0] + dX0dPhi_T_dFdy_T_p[i][..., 1]);
+            dL_dPhi[i] -= 0.5*dt*(dX0dPhi_T_dFdy_T_p[i][0, ...] + dX0dPhi_T_dFdy_T_p[i][1, ...]);
 
         # Add the (dX0_dPhi(0)^T p(0) part of the dL_dPhi computation 
         for i in range(N_X0_Params):
@@ -547,26 +547,26 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         if(Debug_Plots == True):
             # Plot the final trajectory, gradients.
             plt.figure(0);
-            plt.plot(t_Values, p[0, :].detach().numpy());
+            plt.plot(t_Values, p[:, 0].detach().numpy());
             plt.xlabel(r"$t$");
             plt.ylabel(r"$p(t)$");
             plt.title("Adjoint");
 
             plt.figure(1);
-            plt.plot(t_Values, x_Pred_Values[0, :].detach().numpy());
+            plt.plot(t_Values, x_Pred_Values[:, 0].detach().numpy());
             plt.xlabel(r"$t$");
             plt.ylabel("predicted position");
             plt.title("Predicted trajectory");
             plt.yscale('log');
 
             plt.figure(2);
-            plt.plot(t_Values, dFdx_T_p[0, :].reshape(-1).detach().numpy());
+            plt.plot(t_Values, dFdx_T_p[:, 0].reshape(-1).detach().numpy());
             plt.xlabel(r"$t$");
             plt.ylabel(r"$(dF/dx)(t)$");
             plt.title("Gradient of F with respect to $x(t)$ along the predicted trajectory");
 
             plt.figure(3);
-            plt.plot(t_Values, dFdy_T_p[0, :].reshape(-1).detach().numpy());
+            plt.plot(t_Values, dFdy_T_p[:, 0].reshape(-1).detach().numpy());
             plt.xlabel(r"$t$");
             plt.ylabel(r"$(dF/dy)(t)$");
             plt.title("Gradient of F with respect to $y(t) = x(t - tau)$ along the predicted trajectory");

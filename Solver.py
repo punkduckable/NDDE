@@ -28,7 +28,7 @@ def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T 
     --------------------------------------------------------------------------------------------
     Returns:
 
-    A two element tuple. The first element holds a 2D tensor whose kth column holds the state of 
+    A two element tuple. The first element holds a 2D tensor whose kth row holds the state of 
     the system (as solved by the solver) at the kth time value. The second is another 1D tensor 
     whose kth element holds the kth time value. Note: We only approximate the solution in the 
     interval [0, T].
@@ -59,20 +59,20 @@ def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T 
 
     # tensor to hold the solution, time steps. Note the +1 is to account for 
     # the fact that we want the solution at N+1 times: 0, dt, 2dt, ... , Ndt.
-    x_Trajectory    : torch.Tensor  = torch.empty([d, N + 1],   dtype = torch.float32);
-    t_Trajectory    : torch.Tensor  = torch.linspace(start = 0, end = T, steps = N + 1);
+    x_Trajectory    : torch.Tensor  = torch.empty([N + 1, d],                           dtype = torch.float32);
+    t_Trajectory    : torch.Tensor  = torch.linspace(start = 0, end = T, steps = N + 1, dtype = torch.float32);
 
     # Set the first column of x to the IC at time 0 (the last element of t_Values_X0).
-    x_Trajectory[:, 0]             = X0_t[-1];
+    x_Trajectory[0, :]             = X0_t[-1];
     
     # Compute the solution!
     for i in range(0, N):
         # Find x at the i+1th time value. Note that if t < tau (equivalently, i < N_tau), then 
         # t - \tau < 0, which means that x(t - \tau) = x0. 
         if i >= N_tau:
-            x_Trajectory[:, i + 1] = x_Trajectory[:, i] + dt*F(x = x_Trajectory[:, i], y = x_Trajectory[:, i - N_tau],  tau = tau,  t = torch.tensor(float(i*N_tau)));
+            x_Trajectory[i + 1, :] = x_Trajectory[i, :] + dt*F(x = x_Trajectory[i, :], y = x_Trajectory[i - N_tau, :],  tau = tau,  t = torch.tensor(float(i*N_tau)));
         else:
-            x_Trajectory[:, i + 1] = x_Trajectory[:, i] + dt*F(x = x_Trajectory[:, i], y = X0_t[i, :],                  tau = tau,  t = torch.tensor(float(i*N_tau)));
+            x_Trajectory[i + 1, :] = x_Trajectory[i, :] + dt*F(x = x_Trajectory[i, :], y = X0_t[:, :],                  tau = tau,  t = torch.tensor(float(i*N_tau)));
 
     # All done!
     return (x_Trajectory, t_Trajectory);
@@ -104,7 +104,7 @@ def RK2(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Te
     --------------------------------------------------------------------------------------------
     Returns:
 
-    A two element tuple. The first element holds a 2D tensor whose kth column holds the state of 
+    A two element tuple. The first element holds a 2D tensor whose kth row holds the state of 
     the system (as solved by the solver) at the kth time value. The second is another 1D tensor 
     whose kth element holds the kth time value. Note: We only approximate the solution in the 
     interval [0, T].
@@ -135,27 +135,27 @@ def RK2(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Te
 
     # tensor to hold the solution, time steps. Note the +1 is to account for 
     # the fact that we want the solution at N+1 times: 0, dt, 2dt, ... , Ndt.
-    x_Trajectory    : torch.Tensor  = torch.empty([d, N + 1],   dtype = torch.float32);
+    x_Trajectory    : torch.Tensor  = torch.empty([N + 1, d],   dtype = torch.float32);
     t_Trajectory    : torch.Tensor  = torch.linspace(start = 0, end = T, steps = N + 1);
 
     # Set the first column of x to the IC at time 0 (the last element of t_Values_X0).
-    x_Trajectory[:, 0]             = X0_t[-1, :];
+    x_Trajectory[0, :]             = X0_t[-1, :];
     
     # Compute the solution!
     for i in range(0, N):
         # Find x at the i+1th time value. We do this using a 2 step RK method. Note that if t < tau 
         # (equivalently, i < N_tau), then t - \tau < 0, which means that x(t - \tau) = x0. 
         t_i     : torch.Tensor  = t_Trajectory[i];                                                      # t
-        x_i     : torch.Tensor  = x_Trajectory[:, i];                                                   # x(t)
-        y_i     : torch.Tensor  = x_Trajectory[:, i - N_tau] if i > N_tau else X0_t[i, :];              # x(t - tau)
+        x_i     : torch.Tensor  = x_Trajectory[i, :];                                                   # x(t)
+        y_i     : torch.Tensor  = x_Trajectory[i - N_tau, :] if i > N_tau else X0_t[i, :];              # x(t - tau)
         k1      : torch.Tensor  = F(x_i, y_i, tau, t_i);
 
         t_ip1   : torch.Tensor  = t_Trajectory[i + 1];                                                  # t + dt
         x_ip1   : torch.Tensor  = x_i + dt*k1;                                                          # x(t) + dt*k1
-        y_ip1   : torch.Tensor  = x_Trajectory[:, i + 1 - N_tau] if i + 1 > N_tau else X0_t[i + 1, :];  # x(t + dt - tau)
+        y_ip1   : torch.Tensor  = x_Trajectory[i + 1 - N_tau, :] if i + 1 > N_tau else X0_t[i + 1, :];  # x(t + dt - tau)
         k2      : torch.Tensor  = F(x_ip1, y_ip1, tau, t_ip1);
 
-        x_Trajectory[:, i + 1]  = x_Trajectory[:, i] + dt*0.5*(k1 + k2);
+        x_Trajectory[i + 1, :]  = x_Trajectory[i, :] + dt*0.5*(k1 + k2);
 
     # All done!
     return (x_Trajectory, t_Trajectory);

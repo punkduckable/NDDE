@@ -46,14 +46,9 @@ def Train(  DDE_Module      : torch.nn.Module,
     # ---------------------------------------------------------------------------------------------
     # Setup 
 
-    # Set up buffers to track history of loss, and tau.
-    History_Dict : Dict[str, torch.Tensor] = {};
-    History_Dict["Loss"]    = torch.zeros(N_Epochs);
-    History_Dict["tau"]     = torch.zeros(N_Epochs);
-
     # Set up an interpolation for the target trajectory. We will need to evaluate this 
     # wherever we evaluate the predicted trajectory
-    x_Target_Interpolated                         = interpolate.interp1d(t_Target.detach().numpy(), x_Target.detach().numpy());
+    x_Target_Interpolated                         = interpolate.CubicSpline(t_Target.detach().numpy(), x_Target.detach().numpy());
 
 
     # ---------------------------------------------------------------------------------------------
@@ -83,17 +78,17 @@ def Train(  DDE_Module      : torch.nn.Module,
 
             # find the predicted trajectories with current tau, parameter values.
             Predicted_Trajectory                    = DDE_Module(tau, T, l, G, x_Target_Interpolated);
-            xT_Predict              : torch.Tensor  = Predicted_Trajectory[-1];
+            xT_Predict              : torch.Tensor  = Predicted_Trajectory[-1, :];
 
             # find the time steps for the output trajectory
-            N_Steps : int = Predicted_Trajectory.shape[1];
+            N_Steps : int = Predicted_Trajectory.shape[0];
 
             # interpolate the target solution at the new time steps. Note that we need to do 
             # this every epoch because tau changes each epoch, and tau controls the step size.
             t_Predict_np                            = numpy.linspace(start = 0, stop = T.item(), num = N_Steps);
-            Target_Trajectory       : torch.Tensor  = torch.from_numpy(x_Target_Interpolated(t_Predict_np));
+            Target_Trajectory       : torch.Tensor  = torch.from_numpy(x_Target_Interpolated(t_Predict_np)).to(dtype = torch.float32);
 
-            xT_Target               : torch.Tensor  = Target_Trajectory[-1];
+            xT_Target               : torch.Tensor  = Target_Trajectory[-1, :];
 
             # Compute the loss!
             Loss_Terminal           : torch.Tensor  = G(xT_Predict, xT_Target);
@@ -158,10 +153,7 @@ def Train(  DDE_Module      : torch.nn.Module,
                     " | tau = %7.5f"                % tau.item(), 
                     " | grad tau = %9.5f"           % tau.grad.item());
             #plt.plot(Predicted_Trajectory[0].detach().numpy());
-
-        # Save the data for printing later
-        History_Dict["Loss"][epoch - 1]     = Loss.item();
-        History_Dict["tau"][epoch - 1]      = tau.item();
+    
 
     # Report final tau, parameter values.
     LOGGER.debug("Final values:");
