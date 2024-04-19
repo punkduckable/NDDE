@@ -3,6 +3,7 @@ import  logging;
 import  matplotlib      as  mpl;
 import  colorsys;       
 import  seaborn;
+import  torch;
 
 
 
@@ -46,7 +47,7 @@ def Initialize_Logger(level : int) -> None:
 
 
 # -------------------------------------------------------------------------------------------------
-# Initialize logger
+# Initialize MatPlotLib
 # -------------------------------------------------------------------------------------------------
 
 def Initialize_MPL() -> None:
@@ -76,3 +77,54 @@ def Initialize_MPL() -> None:
     mpl.rcParams["axes.labelsize"]  = 11;
     mpl.rcParams["axes.titlesize"]  = 12;
     mpl.rcParams["axes.facecolor"]  = scale_lightness(mpl.colors.ColorConverter.to_rgb("lightgrey"), 1.15);
+
+
+
+# -------------------------------------------------------------------------------------------------
+# Add Noise
+# -------------------------------------------------------------------------------------------------
+
+def Add_Noise(X : torch.Tensor, l : float) -> torch.Tensor:
+    """
+    This function adds Gaussian white noise to the dataset, X. How do we do this? We assume that X
+    is a N x d tensor. For each j \in {0, 1, ... , d - 1}, we find the STD of X[:, j], which we 
+    will denote by sigma_i. For each i \in {0, 1, ... , N - 1}, we sample a Gaussian random 
+    variable with mean 0 and STD l*sigma_i, then add that sample to X[i, j]. We do this for each 
+    i, j and then return the result. 
+
+    
+    -----------------------------------------------------------------------------------------------
+    Arguments:
+
+    X: A 2D, N x d tensor. We add Gaussian noise to each column of X such that the noise in 
+    column j has a STD of l times the STD of the values in X[:, j].
+
+    l: The noise level. This should be a non-negative float.
+    """
+
+    # Checks
+    assert(isinstance(l, float));        
+    assert(l >= 0);
+    assert(len(X.shape) == 2); 
+
+    # Edge cases
+    if(l == 0):
+        return X;
+
+    # Recover information about X.
+    N : int = X.shape[0];
+    d : int = X.shape[1];
+
+    # Now... add noise to X, column by column. To do this, we first make an tensor of "per-element"
+    # standard deviations. This tensor has the same shape as X. To make this, we first compute the
+    # STD of each column of x, but make sure to keep the extra dimension. This gives us a "sigma" 
+    # tensor of shape 1 x d. We then expand this tensor along the 0 axis to have shape N x d. This 
+    # technically doesn't create any new memory, it just makes a tensor-like thing, S, such that 
+    # S[i, j] returns sigma[j] for each i, j. Then, for each i,j, we use torch's normal function to 
+    # sample a normal distribution with mean X[i, j] and standard deviation sigma[j]. We store 
+    # these samples in a new tensor, Y, which is what we return.
+    sigma   : torch.Tensor  = l*torch.std(X, dim = 0, keepdim = True);
+    S       : torch.Tensor  = sigma.expand(N, -1);
+    Y       : torch.Tensor  = torch.normal(mean = X, std = S);
+
+    return Y;

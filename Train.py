@@ -95,7 +95,6 @@ def Train(  DDE_Module      : torch.nn.Module,
             Loss_Running            : torch.Tensor  = Integral_Loss(Predicted_Trajectory, Target_Trajectory, torch.from_numpy(t_Predict_np), l);
             Loss                    : torch.Tensor  = Loss_Terminal + Loss_Running;
             LOGGER.debug("Loss = %f" % Loss.item());
-            
 
             # -----------------------------------------------------------------------------------------
             # Run back-propagation, log, return!

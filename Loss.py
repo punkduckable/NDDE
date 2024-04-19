@@ -199,7 +199,7 @@ def Integral_Loss(
     d : int = Predict_Trajectory.shape[1];
 
     # First compute the integrand.
-    Integrand   : torch.Tensor  = torch.zeros(N);
+    Integrand   : torch.Tensor  = torch.empty(N);   
     for j in range(N):
         Integrand[j] = l(Predict_Trajectory[j, :], Target_Trajectory[j, :]);
 
