@@ -229,10 +229,11 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         X0_Params       : int               = Params[N_F_Params:];
 
         # Find the step size for the backwards pass. Also find the number of time step and the 
-        # number of time steps in an interval of length tau. 
+        # number of time steps in an interval of length tau. Equivalently,
+        #            N = max{ N : T - N*dt <= 0 }
         N_tau           : int               = 10;
         dt              : float             = tau.item()/N_tau;
-        N               : int               = int(torch.floor(T/dt).item());
+        N               : int               = int(torch.ceil(T/dt).item());
 
         # Now, let's set up an interpolation of the forward trajectory. We will evaluate this 
         # interpolation at each time when we want to compute the adjoint. This allows us to use
@@ -241,7 +242,6 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         
         # Find time values for backwards pass. The first time step should be slightly larger than 0.
         t_Values        : torch.Tensor      = torch.linspace(start = T - N*dt, end = T, steps = N + 1);
-        assert(t_Values[0] >= 0);
 
         # evaluate the interpolation of the predicted, target solution at these values. 
         x_Targ_Values   : torch.Tensor      = torch.from_numpy(x_Targ_Interp(t_Values.detach().numpy())).to(dtype = torch.float32);
@@ -433,31 +433,69 @@ class DDE_adjoint_Backward(torch.autograd.Function):
             # Accumulate results to compute integrals for dL_dtau, dL_dTheta, and dL_dPhi
     
             # In this case, 
+            #
             #   dL_dTheta   =  -\int_{t = 0}^T dF_dTheta(x(t), x(t - tau), tau, t)^T p(t) dt
             #
             #   dL_dtau     = \int_{t = 0}^{T - tau} dF_dy(x(t + tau), x(t), tau, t + tau)^T p(t + tau) \cdot F(x(t), x(t - tau), tau, t) dt 
             #               - \int_{0}^{T} p(t) \cdot (dF_dtau)(x(t), x(t - tau), tau, t) dt
             #
             #   dL_dPhi     = -(dX0_dPhi(0))^T p(0) -\int_{t = 0}^{tau} (dX0_dPhi(t - tau))^T (dF_dy(x(t), x(t - tau), tau, t)^T p(t)) dt
+            #
             # We compute these integrals using the trapezoidal rule. Here, we add the contribution
             # from the j'th step.
 
+            """
+            Note: things get weird when j = 0. We compute dF_dtau \cdot p, dF_dTheta^T p, 
+            dF_dx^T p, and dF_dy^T p at times T, T - dt, T - 2 dt, ... , T - N dt, where 
+            N = max{ N : T - N*dt <= 0}. We want to integrate on [0, T]. However, because of 
+            where we actually know F and its derivatives, we need to do a weird thing to the 
+            first sub-interval used in integration. To understand what, suppose we want to 
+            integrate f on the interval [0, s], but we know f at s and s - dt < 0. We will use 
+            a single trapezoidal step. Consider the line that goes from f(s - dt) at t = s - dt 
+            to f(s) at t = s. This line defines the top of the trapezoid. At t = 0, the line 
+            equals 
+                    f(s)(1 - s/dt) + (s/dt)f(s - dt)
+            (think about it). We use this value as an approximation for f(0), then run the 
+            trapezoidal rule as usual with a step size of s, not dt.
+            """ 
+
+            # First, get the time step. If j > 0, this is just dt. Otherwise, we need to 
+            # set it to the 1 entry of the t_ value of the t_Values, since this will be 
+            # the last positive time/correspond to "s" in the comment above.
+            dt_j : float = dt;
+            if(j == 0):
+                dt_j = t_Values[1];
+
+            # Next, determine of the function at time t_j and t_j + dt in the trapezoidal step for
+            # the j'th sub interval. If j > 0, the weights are precisely 1/2. If j == 0, then we
+            # average f(s) and f(s)(1 - s/dt) + (s/dt)f(s - dt), yielding a weight of 
+            # (1/2)(2 - s/dt) for f(s) and a weight of (1/2)(s/dt) for f(s - dt).
+            w_t_j   : float = 0.5;
+            w_t_jp1 : float = 0.5;
+            if(j == 0):
+                w_t_j   = 0.5*(t_Values[1]/dt);
+                w_t_jp1 = 1.0 - w_t_j;
+                # print("w_t_j = %f, w_t_jp1 = %f, dt = %f, dt_j = %f, t_0 = %f, t_1 = %f" % (w_t_j, w_t_jp1, dt, dt_j, t_Values[0], t_Values[1]));
+
             # dL_dtau
             if(j < N):
-                dL_dtau     -=  0.5*dt*(dFdtau_T_p[j, :] + dFdtau_T_p[j + 1, :]);
+                dL_dtau     -=  dt_j*(  w_t_j*dFdtau_T_p[   j,      :] + 
+                                        w_t_jp1*dFdtau_T_p[ j + 1,  :]);
             if(j < N - N_tau):
-                dL_dtau     +=  0.5*dt*(torch.dot(dFdy_T_p[j +     N_tau, :], F_Values[j,     :]) + 
-                                        torch.dot(dFdy_T_p[j + 1 + N_tau, :], F_Values[j + 1, :]));
+                dL_dtau     +=  dt_j*(  w_t_j*  torch.dot(dFdy_T_p[j +     N_tau, :], F_Values[j,     :]) + 
+                                        w_t_jp1*torch.dot(dFdy_T_p[j + 1 + N_tau, :], F_Values[j + 1, :]));
             
             # dL_dTheta 
             if(j < N):
                 for i in range(N_F_Params):
-                    dL_dTheta[i] -= 0.5*dt*(dFdTheta_T_p[i][j, ...] + dFdTheta_T_p[i][j + 1, ...]);
+                    dL_dTheta[i] -= dt_j*(  w_t_j*dFdTheta_T_p[i][  j,      ...] + 
+                                            w_t_jp1*dFdTheta_T_p[i][j + 1,  ...]);
             
             # dL_dPhi
             if(j < N_tau):
                 for i in range(N_X0_Params):
-                    dL_dPhi[i]  -= 0.5*dt*(dX0dPhi_T_dFdy_T_p[i][j, ...] + dX0dPhi_T_dFdy_T_p[i][j + 1, ...]);
+                    dL_dPhi[i]  -= dt_j*(   w_t_j*dX0dPhi_T_dFdy_T_p[i][    j,      ...] + 
+                                            w_t_jp1*dX0dPhi_T_dFdy_T_p[i][  j + 1,  ...]);
 
 
         """
@@ -497,11 +535,6 @@ class DDE_adjoint_Backward(torch.autograd.Function):
                                                                         inputs          = X0_Params, 
                                                                         grad_outputs    = dFdy_T_p[0, :]);
 
-        # Next, let's compute (dX0_dPhi(0))^T p(0)
-        dX0dPhi_T_p_t0       = torch.autograd.grad(                     outputs         = X0(t_0).reshape(-1), 
-                                                                        inputs          = X0_Params,
-                                                                        grad_outputs    = p_0);
-
         # And finally, let's store the phi gradients. 
         for i in range(N_X0_Params):
             dX0dPhi_T_dFdy_T_p[i][0, ...] = dX0dPhi_T_dFdy_T_p_t0[i];
@@ -527,12 +560,32 @@ class DDE_adjoint_Backward(torch.autograd.Function):
         
         # dL_dPhi
         for i in range(N_X0_Params):
-            dL_dPhi[i] -= 0.5*dt*(dX0dPhi_T_dFdy_T_p[i][0, ...] + dX0dPhi_T_dFdy_T_p[i][1, ...]);
+            dL_dPhi[i] -= 0.5*dt*(dX0dPhi_T_dFdy_T_p[i][0, ...] + dX0dPhi_T_dFdy_T_p[i][1, ...]);    
+        """
+
+
+        # First, we need to approximate p(0). To do this, we use a linear interpolation of
+        # p[t_0] and p[t_1]. Specifically, imagine the line that goes from p[t_0] at time 
+        # t_0 to p[t_1] at time t_1. The line is defined by the map 
+        #       t -> p[t_0] + [(t - t_0)/dt](p[t_1] - p[t_0])
+        # At t = 0, this becomes 
+        #       p[t_0](1 + t_0/dt) - (t_0/dt)p[t_1]
+        # We can use the above to approximate p_0.
+        torch.set_grad_enabled(True);
+        t_0 : torch.Tensor  = t_Values[0];
+        p_0 : torch.Tensor  = p[0, :]*(1 + t_0/dt) - (t_0/dt)*p[1, :];
+
+        # Next, let's compute (dX0_dPhi(0))^T p(0)
+        dX0dPhi_T_p_t0       = torch.autograd.grad(                     outputs         = X0(torch.tensor(0)).reshape(-1), 
+                                                                        inputs          = X0_Params,
+                                                                        grad_outputs    = p_0);
+        torch.set_grad_enabled(True);
+
 
         # Add the (dX0_dPhi(0)^T p(0) part of the dL_dPhi computation 
         for i in range(N_X0_Params):
             dL_dPhi[i] -= dX0dPhi_T_p_t0[i];
-        """
+
 
         # All done... The kth return argument represents the gradient for the kth argument to forward.
         #      F,    X0,   tau,     T,    l,    G,    x_Targ_Interp, N_F_Params, N_X0_Params, Params 
