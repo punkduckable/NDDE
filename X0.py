@@ -20,7 +20,7 @@ class Constant(torch.nn.Module):
         """
 
         # Run the super class initializer. 
-        super(Constant, self).__init__();
+        super().__init__();
 
         # Run checks
         assert(len(x0.shape) == 1);
@@ -58,16 +58,16 @@ class Affine(torch.nn.Module):
         -------------------------------------------------------------------------------------------
         Arguments:
         
-        x0 : This should be a single element tensor whose lone value holds the constant we want to 
-        set the IC to.
+        a, b : These should be 1D tensors whose holding the constants in the function t -> a*t + b.
         """
 
         # Run the super class initializer. 
-        super(Affine, self).__init__();
+        super().__init__();
 
         # Run checks
         assert(len(a.shape) == 1);
         assert(len(b.shape) == 1);
+        assert(a.shape[0]   == b.shape[0]);
 
         # Store the constants a, b as parameters.
         self.a = torch.nn.Parameter(a.reshape(1, -1), requires_grad = True);
@@ -92,6 +92,55 @@ class Affine(torch.nn.Module):
         # Reshape t.
         t = t.reshape(-1, 1);
 
-        # The IC is ALWAYS x0... it's a constant!
+        # Compute the IC!
         return (self.a)*t + self.b;
 
+
+
+class Periodic(torch.nn.Module):
+    """
+    This class implements a simple periodic IC:
+        X0(t) = A*cos(w*t)
+    """
+    def __init__(self, A : torch.Tensor, w : torch.Tensor) -> None:
+        """
+        -------------------------------------------------------------------------------------------
+        Arguments:
+        
+        A, w: These should be 1D tensors whose k'th components define the k'th component of the 
+        initial condition: X0_k(t) = A_k * cos(w_k * t).
+        """
+
+        # Run the super class initializer. 
+        super().__init__();
+
+        # Run checks
+        assert(len(A.shape) == 1);
+        assert(len(w.shape) == 1);
+        assert(A.shape[0]   == w.shape[0]);
+
+        # Store the constants A, w as parameters.
+        self.A = torch.nn.Parameter(A.reshape(1, -1), requires_grad = True);
+        self.w = torch.nn.Parameter(w.reshape(1, -1), requires_grad = True);
+
+
+
+    def forward(self, t : torch.Tensor) -> torch.Tensor:
+        """
+        -------------------------------------------------------------------------------------------
+        Arguments:
+        
+        t : This should be a 1D torch.Tensor whose i'th value holds the i'th t value.
+
+        
+        -------------------------------------------------------------------------------------------
+        Returns: 
+
+        A 1D torch.Tensor object whose i'th value holds X0(t[i]).
+        """
+
+        # Reshape t.
+        t = t.reshape(-1, 1);
+
+        # Compute the IC!
+        return torch.mul(self.A, torch.cos(torch.mul(t, self.w)));

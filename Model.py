@@ -39,7 +39,7 @@ class Logistic(torch.nn.Module):
         """
         
         # Call the super class initializer. 
-        super(Logistic, self).__init__();
+        super().__init__();
 
         # Run checks.
         assert(isinstance(theta_0, float));
@@ -119,7 +119,7 @@ class Exponential(torch.nn.Module):
         """
         
         # Call the super class initializer. 
-        super(Exponential, self).__init__();
+        super().__init__();
 
         # Run checks.
         assert(isinstance(theta_0, float));
@@ -160,6 +160,86 @@ class Exponential(torch.nn.Module):
 
         # compute, return the output         
         Output : torch.Tensor = self.theta[0]*x + self.theta[1]*y;
+        return Output;
+
+
+
+class ENSO(torch.nn.Module):
+    """ 
+    Objects of the ENSO class are designed to model the right-hand side of the DDE proposed in the
+    paper "A delayed action oscillator for ENSO". Consider the following DDE:
+        x'(t) = F(x(t), x(t - \tau), \tau, t, \theta)   t \in [0, T]
+        x(t)  = X0(t)                                   t \in [-\tau, 0]
+    A Exponential object is supposed to act like the function F in the expression above when F has 
+    the following general form 
+        F(x(t), x(t - \tau), \tau, t, \theta) = theta_0 x(t) -  theta_1 x(t)^3 - theta_2 x(t - \tau)).
+    In other words, objects of this class are callable objects which accept four arguments: x, y, 
+    tau, and t. If x = x(t), y = x(t - \tau) then return F evaluated at those inputs. 
+    """
+
+    def __init__(self, theta_0 : float, theta_1 : float, theta_2 : float):
+        """ 
+        This class defines the following right-hand side of a DDE:
+            F(x, y, tau, t) = theta_0*x + theta_1*x^3 + theta_2*y
+        (there is no explicit dependence on t or tau). Thus, the arguments theta_0, theta_1, and 
+        theta_2 define F.
+
+        
+
+        -------------------------------------------------------------------------------------------
+        Arguments: 
+        -------------------------------------------------------------------------------------------
+
+        theta_0, theta_1, theta_2: These should be floats representing the initial values of the 
+        variables theta_0, theta_1, and theta_2 in the definition above, respectively. We convert 
+        these to torch.nn.Parameter objects which can be trained.
+        """
+        
+        # Call the super class initializer. 
+        super().__init__();
+
+        # Run checks.
+        assert(isinstance(theta_0, float));
+        assert(isinstance(theta_1, float));
+
+        # Set model parameters.
+        self.theta    = torch.nn.parameter.Parameter(torch.tensor(  [theta_0, theta_1, theta_2], 
+                                                                    dtype = torch.float32, 
+                                                                    requires_grad = True).reshape(-1));
+
+
+
+    def forward(self, x : torch.Tensor, y : torch.Tensor, tau : torch.Tensor, t : torch.Tensor) -> torch.Tensor:
+        """
+        We expect x and y to be 1D tensors (with the same length). We also expect t to be a single 
+        element tensor. This function then returns
+            F(x, y, tau, t) = theta_0 x + theta_1 x^3 + theta_2 y
+        (there is no explicit dependence on t or tau).
+
+
+        --------------------------------------------------------------------------------------------
+        Arguments: 
+        --------------------------------------------------------------------------------------------
+        
+        x, y: 1D tensors representing the first two arguments of the right hand side of the above 
+        DDE. These should have the same length.
+
+        tau: A single element tensor whose lone value represents the delay in the DDE (this only 
+        matters if the delay appears explicitly in F).
+
+        t: a single element tensor whose lone value represents the third argument to the DDE above.
+        """
+
+        # Checks.
+        assert(len(x.shape) == 1);
+        assert(len(y.shape) == 1);
+        assert(x.numel()    == y.numel());
+        assert(x.numel()    == 1);
+        assert(t.numel()    == 1);
+        assert(tau.numel()  == 1);
+
+        # compute, return the output         
+        Output : torch.Tensor = self.theta[0]*x - self.theta[1]*(torch.pow(x, 3)) - self.theta[2]*y;
         return Output;
 
 
