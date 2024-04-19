@@ -39,41 +39,40 @@ def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T 
     assert(tau.item()       >  0);
     assert(T.numel()        == 1);
 
-    # Define the time-step to be 0.01 of the delay
+    # Define the time-step to be 0.1 of the delay
     dt  : float         = 0.1*tau.item();
 
-    # Find the number of time steps. We add +1 for the initial time.
-    N   : int           = int(torch.floor(T/dt).item());
+    # Find the number of time steps (of size dt) to get to T. i.e. min{ N : N*dt >= T}.
+    N   : int           = int(torch.ceil(T/dt).item());
 
-    # compute the difference in indices between x(t) and x(t - tau).
+    # Record the difference in indices between x(t) and x(t - tau).
     # This is just tau/dt = tau/(.1*tau) = 10.
     N_tau       : int           = 10;
 
-    # Pre-compute X0 at -tau, -tau + dt, ... , 0.
-    t_Values_X0 : torch.Tensor  = torch.linspace(start = -tau.item(), end = 0, steps = N_tau + 1);
-    X0_t        : torch.Tensor  = X0(t_Values_X0);
+    # Now, get the IC. We also use this chance to recover d.
+    X0_0    : torch.Tensor  = X0(torch.tensor(0));
+    d       : int           = X0_0.shape[1];
 
-    # Find the dimension of x. Note that X0_t should be a (N_tau + 1) x d tensor, so we can use it
-    # to find d. 
-    d           : int           = X0_t.shape[1];
-
-    # tensor to hold the solution, time steps. Note the +1 is to account for 
-    # the fact that we want the solution at N+1 times: 0, dt, 2dt, ... , Ndt.
-    x_Trajectory    : torch.Tensor  = torch.empty([N + 1, d],                           dtype = torch.float32);
-    t_Trajectory    : torch.Tensor  = torch.linspace(start = 0, end = T, steps = N + 1, dtype = torch.float32);
+    # Set up tensors to hold the solution, time steps. In general, we want the solution at N + 1 
+    # times: 0, dt, 2*dt, ... , N*dt. 
+    x_Trajectory    : torch.Tensor  = torch.empty([N + 1, d],   dtype = torch.float32);
+    t_Trajectory    : torch.Tensor  = torch.linspace(start = 0, end = N*dt, steps = N + 1);
 
     # Set the first column of x to the IC at time 0 (the last element of t_Values_X0).
-    x_Trajectory[0, :]             = X0_t[-1];
+    x_Trajectory[0, :]             = X0_0;
     
     # Compute the solution!
     for i in range(0, N):
-        # Find x at the i+1th time value. Note that if t < tau (equivalently, i < N_tau), then 
-        # t - \tau < 0, which means that x(t - \tau) = x0. 
-        if i >= N_tau:
-            x_Trajectory[i + 1, :] = x_Trajectory[i, :] + dt*F(x = x_Trajectory[i, :], y = x_Trajectory[i - N_tau, :],  tau = tau,  t = torch.tensor(float(i*N_tau)));
-        else:
-            x_Trajectory[i + 1, :] = x_Trajectory[i, :] + dt*F(x = x_Trajectory[i, :], y = X0_t[:, :],                  tau = tau,  t = torch.tensor(float(i*N_tau)));
+        # Fetch t, x(t), and x(t - tau) at the i'th time value. Note that if t < tau (equivalently, 
+        # i < N_tau), then t - \tau < 0, which means that x(t - \tau) = X0(t - \tau)
+        t_i     : torch.Tensor  = t_Trajectory[i];                                                          # t
+        x_i     : torch.Tensor  = x_Trajectory[i, :];                                                       # x(t)
+        y_i     : torch.Tensor  = x_Trajectory[i - N_tau, :] if i > N_tau else X0(t_i - tau).reshape(-1);   # x(t - tau)
+        F_i     : torch.Tensor  = F(x_i, y_i, tau, t_i);
 
+        # Now... compute x at the next time step.
+        x_Trajectory[i + 1, :] = x_i + dt*F_i;
+       
     # All done!
     return (x_Trajectory, t_Trajectory);
 
@@ -151,7 +150,7 @@ def RK2(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Te
         y_ip1   : torch.Tensor  = x_Trajectory[i + 1 - N_tau, :] if i + 1 > N_tau else X0(t_i + dt - tau).reshape(-1);  # x(t + dt - tau)
         k2      : torch.Tensor  = F(x_ip1, y_ip1, tau, t_ip1);
 
-        x_Trajectory[i + 1, :]  = x_Trajectory[i, :] + dt*0.5*(k1 + k2);
+        x_Trajectory[i + 1, :]  = x_i + dt*0.5*(k1 + k2);
 
     # All done!
     return (x_Trajectory, t_Trajectory);
