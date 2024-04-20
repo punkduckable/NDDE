@@ -128,3 +128,30 @@ def Add_Noise(X : torch.Tensor, l : float) -> torch.Tensor:
     Y       : torch.Tensor  = torch.normal(mean = X, std = S);
 
     return Y;
+
+
+
+# -------------------------------------------------------------------------------------------------
+# Log a dictionary
+# -------------------------------------------------------------------------------------------------
+
+def Log_Dict(LOGGER : logging.Logger, D : dict, level : int = logging.DEBUG, indent : int = 0) -> None:
+    indent_str : str = '   '*indent;
+
+    # Determine which level we're using to report the dictionary. Can either be debug or info.
+    if(  level == logging.DEBUG):
+        Report = LOGGER.debug;
+    elif(level == logging.INFO):
+        Report = LOGGER.info;
+    else:
+        LOGGER.warning("Invalid dictionary log level. Valid options are logging.DEBUG = %d and logging.INFO = %d. Got %d" % (logging.DEBUG, logging.INFO, level));
+        LOGGER.warning("Returning without reporting dictionary...");
+        return; 
+
+    # Report the dictionary
+    for k,v in D.items():
+        if(isinstance(v, dict)):
+            Report("%s[%s] ==>" % (indent_str, str(k)));
+            Log_Dict(LOGGER = LOGGER, D = v, level = level, indent = indent + 1);   
+        else:
+            Report("%s[%s] ==> [%s]" % (indent_str, str(k), str(v)));

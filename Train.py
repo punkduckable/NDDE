@@ -14,17 +14,17 @@ LOGGER : logging.Logger = logging.getLogger(__name__);
 
 
 
-def Train(  DDE_Module      : torch.nn.Module, 
-            tau             : torch.Tensor,
-            N_tau           : int, 
-            T               : torch.Tensor,
-            N_Epochs        : int, 
-            x_Target        : torch.Tensor, 
-            t_Target        : torch.Tensor, 
-            l               : torch.nn.Module,
-            G               : torch.nn.Module,
-            Loss_Threshold  : float, 
-            Optimizer       : torch.optim.Optimizer,
+def Train(  DDE_Module          : torch.nn.Module, 
+            tau                 : torch.Tensor,
+            N_tau               : int, 
+            T                   : torch.Tensor,
+            N_Epochs            : int, 
+            x_Target            : torch.Tensor, 
+            t_Target            : torch.Tensor, 
+            l                   : torch.nn.Module,
+            G                   : torch.nn.Module,
+            Loss_Threshold      : float, 
+            Optimizer           : torch.optim.Optimizer,
             Scheduler                   = None,
             Writer                      = None) -> Tuple[numpy.ndarray, numpy.ndarray]:
     """
@@ -133,6 +133,7 @@ def Train(  DDE_Module      : torch.nn.Module,
             Loss                    : torch.Tensor  = Loss_Terminal + Loss_Running;
             LOGGER.debug("Loss = %f" % Loss.item());
 
+
             # -----------------------------------------------------------------------------------------
             # Run back-propagation, log, return!
 
@@ -166,9 +167,9 @@ def Train(  DDE_Module      : torch.nn.Module,
 
         # Check if loss is low enough to stop
         if Loss < Loss_Threshold:
-            print("converged after %d epochs" % epoch);
+            print("Loss Threshold Reached! Converged after %d epochs" % epoch);
             break;
-
+        
         # Check if tau is below the threshold. If so, reset it.
         if(tau.item() < Tau_Threshold):
             LOGGER.warning("Tau dropped below allowed minimum (%f). Current value is %f." % 
