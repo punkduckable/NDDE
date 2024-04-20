@@ -15,7 +15,8 @@ LOGGER : logging.Logger = logging.getLogger(__name__);
 
 
 def Train(  DDE_Module      : torch.nn.Module, 
-            tau             : torch.Tensor, 
+            tau             : torch.Tensor,
+            N_tau           : int, 
             T               : torch.Tensor,
             N_Epochs        : int, 
             x_Target        : torch.Tensor, 
@@ -27,9 +28,45 @@ def Train(  DDE_Module      : torch.nn.Module,
             Scheduler                   = None,
             Writer                      = None) -> Tuple[numpy.ndarray, numpy.ndarray]:
     """
-    This function implements the training loop for a simple NDDE object.
+    This function implements the training loop for a NDDE object.
 
-    TO DO
+
+    -----------------------------------------------------------------------------------------------
+    Arguments:
+
+    DDE_Module: This should be a NDDE object that implements the DDE, including the initial 
+    condition. This houses theta and phi, which we train.
+
+    tau: A single element tensor whose lone element specifies our best guess for the time 
+    delay.
+    
+    N_tau: An integer that specifies how many time steps should be in the interval [0, \tau]. 
+
+    T: A single element tensor whose lone element specifies the final simulation time.
+
+    N_Epochs: The number of epochs we train for. 
+
+    x_Target, t_Target: The x and t trajectories returned by a solver.
+
+    l: The function l in the loss function
+        Loss(x_Pred) = G(x(T)) + \int_{0}^{T} l(x_Predict(t), x_Target(t)) dt
+    Thus, it should be a torch.nn.Module  object which takes two arguments, both in R^d. We 
+    assume that this function can be differentiated (using autograd) with respect to its first 
+    argument.
+
+    G: The function G in the loss function
+        Loss(x_Pred) = G(x(T)) + \int_{0}^{T} l(x_Predict(t), x_Target(t)) dt
+    Thus, it should be a torch.nn.Module object which takes two arguments, both in R^d. We 
+    assume that this function can be differentiated (using autograd) with respect to its first 
+    argument.
+    
+    Loss_Threshold: If the loss drops below this value, we stop training and return.
+
+    Optimizer: The optimizer we use to train the DDE_Module.
+
+    Scheduler: A learning rate scheduler object.
+
+    Writer: A writer object we use for tensorboard logging.    
     """
 
     # ---------------------------------------------------------------------------------------------
@@ -77,7 +114,7 @@ def Train(  DDE_Module      : torch.nn.Module,
             # Compute the loss.
 
             # find the predicted trajectories with current tau, parameter values.
-            Predicted_Trajectory                    = DDE_Module(tau, T, l, G, x_Target_Interpolated);
+            Predicted_Trajectory                    = DDE_Module(tau, T, l, G, x_Target_Interpolated, N_tau);
             xT_Predict              : torch.Tensor  = Predicted_Trajectory[-1, :];
 
             # find the time steps for the output trajectory

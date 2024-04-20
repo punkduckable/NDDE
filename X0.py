@@ -102,13 +102,13 @@ class Periodic(torch.nn.Module):
     This class implements a simple periodic IC:
         X0(t) = A*cos(w*t)
     """
-    def __init__(self, A : torch.Tensor, w : torch.Tensor) -> None:
+    def __init__(self, A : torch.Tensor, w : torch.Tensor, b : torch.Tensor) -> None:
         """
         -------------------------------------------------------------------------------------------
         Arguments:
         
-        A, w: These should be 1D tensors whose k'th components define the k'th component of the 
-        initial condition: X0_k(t) = A_k * cos(w_k * t).
+        A, w, b: These should be 1D tensors whose k'th components define the k'th component of the 
+        initial condition: X0_k(t) = A_k * sin(w_k * t) + b_k.
         """
 
         # Run the super class initializer. 
@@ -117,11 +117,14 @@ class Periodic(torch.nn.Module):
         # Run checks
         assert(len(A.shape) == 1);
         assert(len(w.shape) == 1);
+        assert(len(b.shape) == 1);
         assert(A.shape[0]   == w.shape[0]);
+        assert(A.shape[0]   == b.shape[0]);
 
         # Store the constants A, w as parameters.
         self.A = torch.nn.Parameter(A.reshape(1, -1), requires_grad = True);
         self.w = torch.nn.Parameter(w.reshape(1, -1), requires_grad = True);
+        self.b = torch.nn.Parameter(b.reshape(1, -1), requires_grad = True);
 
 
 
@@ -143,4 +146,4 @@ class Periodic(torch.nn.Module):
         t = t.reshape(-1, 1);
 
         # Compute the IC!
-        return torch.mul(self.A, torch.cos(torch.mul(t, self.w)));
+        return torch.mul(self.A, torch.sin(torch.mul(t, self.w))) + self.b;

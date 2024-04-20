@@ -3,7 +3,7 @@ from    typing  import Tuple;
 
 
 
-def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, N_tau : int = 10) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     This function computes an approximate solution to the following DDE:
         x'(t)   = F(x(t), x(t - \tau), tau, t)      t \in [0, T]
@@ -25,6 +25,9 @@ def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T 
 
     T : this is a single element tensor whose lone element represents the final time. 
 
+    N_tau: The number of time steps in the interval [0, \tau]. This decides the resolution of
+    the numerical solve.
+
     --------------------------------------------------------------------------------------------
     Returns:
 
@@ -38,16 +41,14 @@ def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T 
     assert(tau.numel()      == 1);
     assert(tau.item()       >  0);
     assert(T.numel()        == 1);
+    assert(isinstance(N_tau, int));
+    assert(N_tau            >  0);
 
-    # Define the time-step to be 0.1 of the delay
-    dt  : float         = 0.1*tau.item();
+    # Define the time-step to be tau/N_tau of the delay
+    dt  : float         = tau.item()/N_tau;
 
     # Find the number of time steps (of size dt) to get to T. i.e. min{ N : N*dt >= T}.
     N   : int           = int(torch.ceil(T/dt).item());
-
-    # Record the difference in indices between x(t) and x(t - tau).
-    # This is just tau/dt = tau/(.1*tau) = 10.
-    N_tau       : int           = 10;
 
     # Now, get the IC. We also use this chance to recover d.
     X0_0    : torch.Tensor  = X0(torch.tensor(0));
@@ -78,7 +79,7 @@ def Forward_Euler(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T 
 
 
 
-def RK2(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def RK2(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Tensor, N_tau : int = 10) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     This function computes an approximate solution to the following DDE:
         x'(t)   = F(x(t), x(t - \tau), tau, t)  t \in [0, T]
@@ -99,7 +100,10 @@ def RK2(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Te
     tau : This is a single element tensor whose lone element represents the time delay.
 
     T : this is a single element tensor whose lone element represents the final time. 
-
+    
+    N_tau: The number of time steps in the interval [0, \tau]. This decides the resolution of
+    the numerical solve.
+    
     --------------------------------------------------------------------------------------------
     Returns:
 
@@ -113,16 +117,15 @@ def RK2(F : torch.nn.Module, X0 : torch.Tensor, tau : torch.Tensor, T : torch.Te
     assert(tau.numel()      == 1);
     assert(tau.item()       >  0);
     assert(T.numel()        == 1);
+    assert(isinstance(N_tau, int));
+    assert(N_tau            >  0);
 
-    # Define the time-step to be 0.1 of the delay
-    dt  : float         = 0.1*tau.item();
+
+    # Define the time-step to be tau/N_tau.
+    dt  : float         = tau.item()/N_tau;
 
     # Find the number of time steps (of size dt) to get to T. i.e. min{ N : N*dt >= T}.
     N   : int           = int(torch.ceil(T/dt).item());
-
-    # Record the difference in indices between x(t) and x(t - tau).
-    # This is just tau/dt = tau/(.1*tau) = 10.
-    N_tau       : int           = 10;
 
     # Now, get the IC. We also use this chance to recover d.
     X0_0    : torch.Tensor  = X0(torch.tensor(0));

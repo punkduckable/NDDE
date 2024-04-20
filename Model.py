@@ -239,7 +239,7 @@ class ENSO(torch.nn.Module):
         assert(tau.numel()  == 1);
 
         # compute, return the output         
-        Output : torch.Tensor = self.theta[0]*x - self.theta[1]*(torch.pow(x, 3)) - self.theta[2]*y;
+        Output : torch.Tensor = self.theta[0]*x - self.theta[1]*(torch.pow(x, 3)) + -1.0*self.theta[2]*y;
         return Output;
 
 
@@ -344,12 +344,12 @@ class HIV(torch.nn.Module):
 
     def __init__(   self, 
                     k   : float = 0.0000343,  
-                    T0  : float = 180.0, 
                     m   : float = 6.0, 
                     d   : float = 0.5, 
+                    c   : float = 0.25,
+                    T0  : float = 180.0, 
                     np  : float = 0.43, 
-                    N   : float = 480.0, 
-                    c   : float = 0.25):
+                    N   : float = 480.0):
         """ 
         This class defines the following right-hand side of a DDE:
                                 { k T0 y[1] exp(-m tau) - d x[0]
@@ -363,7 +363,7 @@ class HIV(torch.nn.Module):
         Arguments: 
         -------------------------------------------------------------------------------------------
 
-        k, m, d, np, N, c: Trainable parameters in the above model.
+        k, m, c, d, np, N, d: Trainable parameters in the above model.
 
         T0: The population of non-infected T-cells. This is not a trainable parameter.
         """
@@ -377,16 +377,17 @@ class HIV(torch.nn.Module):
         assert(isinstance(np, float));
         assert(isinstance(N,  float));
         assert(isinstance(c,  float));
-        assert(isinstance(T0,  float));
+        assert(isinstance(T0, float));
 
-        # Set model parameters.
-        self.k  = torch.nn.parameter.Parameter(torch.tensor([k], dtype = torch.float32, requires_grad = True).reshape(-1));
-        self.m  = torch.nn.parameter.Parameter(torch.tensor([m], dtype = torch.float32, requires_grad = True).reshape(-1));
-        self.d  = torch.nn.parameter.Parameter(torch.tensor([d], dtype = torch.float32, requires_grad = True).reshape(-1));
+        # Set trainable model parameters.
+        self.k  = torch.nn.parameter.Parameter(torch.tensor([k],  dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.d  = torch.nn.parameter.Parameter(torch.tensor([d],  dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.c  = torch.nn.parameter.Parameter(torch.tensor([c],  dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.m  = torch.nn.parameter.Parameter(torch.tensor([m],  dtype = torch.float32, requires_grad = True).reshape(-1));
+        self.N  = torch.nn.parameter.Parameter(torch.tensor([N],  dtype = torch.float32, requires_grad = True).reshape(-1));
         self.np = torch.nn.parameter.Parameter(torch.tensor([np], dtype = torch.float32, requires_grad = True).reshape(-1));
-        self.N  = torch.nn.parameter.Parameter(torch.tensor([N], dtype = torch.float32, requires_grad = True).reshape(-1));
-        self.c  = torch.nn.parameter.Parameter(torch.tensor([c], dtype = torch.float32, requires_grad = True).reshape(-1));
-        
+
+        # set non-trainable values
         self.T0 = torch.tensor([T0], dtype = torch.float32).reshape(-1);
 
 
@@ -517,7 +518,7 @@ class Neural(torch.nn.Module):
         assert(tau.numel()  == 1);
 
         # Set up the input to the network.
-        X : torch.Tensor = torch.concat([x.reshape(-1), y.reshape(-1), t.reshape(-1)], dim = 0);
+        X : torch.Tensor = torch.concat([x.reshape(-1), y.reshape(-1), tau.reshape(-1), t.reshape(-1)], dim = 0);
 
         # Compute, return the output.  
         for i in range(self.N_Layers - 1):
