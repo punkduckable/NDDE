@@ -40,6 +40,7 @@ errors while running the code, try re-installing the packages with the specified
 `conda install scipy=1.12.9`
 `conda install jupyter`
 `conda install tensorboard`
+`conda install pyyaml`
 
 The virtual environment is now built and ready to run! 
 
