@@ -82,15 +82,14 @@ algorithm. It then stores the values we need for the backward step and returns t
 trajectory. 
 
 The backward method is more involved but essentially solves the adjoint equation and then uses this 
-solution to compute the gradient of $L$ with respect to $\theta$ and $\tau$ (it returns these 
-quantities). To do this, the backward method first fetches the data from the forward pass, sets up 
-some tensors, and then solves the adjoint equation backward in time. We do this either using the 
-forward Euler or RK2 solvers (The code is set up to the RK2 solver, though both solvers work). Once 
-we have the discretized adjoint solution, we compute $dx(t_j)/d\theta$ and $dx(t_j)/d\tau$ for each 
-$j$. We do this using the equations in the statement of theorem 1 of the paper. Finally, once we 
-have these values, we can compute $dL/d\theta$ and $dL/d\tau$ using equation 4 in the paper. Many 
-of these steps involve computing integrals. We use the trapezoidal rule to evaluate all integrals. 
-This function produces several plots; they are for debugging purposes. 
+solution to compute the gradient of $L$ with respect to $\theta$, $\tau$, and $\phi$ (it returns 
+these quantities). To do this, the backward method first fetches the data from the forward pass, 
+sets up some tensors, and then solves the adjoint equation backward in time. We do this either 
+using the forward Euler or RK2 solvers (The code is set up to the RK2 solver, though both solvers 
+work). Once we have the discretized adjoint solution, we compute $\partial_{\theta} \mathcal{L}$ 
+and $\partial \mathcal{L} / \partial \tau$. We do this using the equations in theorem 1 of the 
+paper. Many of these steps involve computing integrals. We use the trapezoidal rule to evaluate all 
+integrals. This function produces several plots; they are for debugging purposes. 
 
 `Solver.py`: This file houses two DDE solvers: A forward Euler solver and a basic Runge Kutta 
 solver. We use these solvers for the forward pass in the DDE_Adjoint class. We used the Forward 
